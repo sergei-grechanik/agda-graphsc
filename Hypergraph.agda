@@ -1,29 +1,23 @@
 
-import Relation.Binary.PropositionalEquality
-open import Function
-open import Data.Empty
 open import Util
-open import Data.Nat
-import Level
+
+module Hypergraph (symbol : Symbol) (semantics : Semantics) where
+
+open import Function
 open import Relation.Binary
+open import Data.Empty
+open import Data.Nat
 open import Data.Product hiding (map)
-open import Data.List
-import Data.List.Any
-open import Data.List.All hiding (map)
 open import Data.Maybe using (Maybe; just; nothing)
+open import Data.List
+open import Data.List.All hiding (map)
+import Data.List.Any
 
-module Hypergraph (symbol : Symbol) (Label : Set)
-                  (domain : Setoid Level.zero Level.zero) 
-                  (⟦_⟧L_ : Label → List (Setoid.Carrier domain) → Maybe (Setoid.Carrier domain)) where
+open Symbol symbol using (fresh) renaming (Carrier to Symb; setoid to SymbSetoid)
+open Data.List.Any.Membership SymbSetoid using (_⊆_; _∈_)
 
-Symb : Set
-Symb = Symbol.Carrier symbol
-
-SymbSetoid : Setoid Level.zero Level.zero
-SymbSetoid = Symbol.setoid symbol
-
-open Data.List.Any.Membership SymbSetoid using (_⊆_;_∈_)
-open Setoid domain
+open Semantics semantics
+open Setoid domain using (_≈_; refl)
 
 Sig : Set
 Sig = List Symb
@@ -51,6 +45,15 @@ record Hyperedge (sig : Sig) : Set where
       label = label
     }
 
+
+_▷_▷_ : {sig : Sig} → Node sig → Label → List (Node sig) → Hyperedge sig
+_▷_▷_ n l ds = 
+  record {
+    source = n;
+    label = l;
+    dests = ds
+  }
+
 record Hypergraph (sig : Sig) : Set₁ where
   field
     hyperedges : List (Hyperedge sig)
@@ -65,15 +68,18 @@ record Hypergraph (sig : Sig) : Set₁ where
 record Interpretation (sig : Sig) : Set₁ where
   open Data.List.Any.Membership SymbSetoid
   field
-    ⟦_⟧ : Node sig → Setoid.Carrier domain
+    ⟦_⟧N : Node sig → Setoid.Carrier domain
+
+_⟦_⟧ : {sig : Sig} → Interpretation sig → Node sig → Setoid.Carrier domain
+_⟦_⟧ i n = Interpretation.⟦_⟧N i n
 
 _⊨-h_ : {sig : Sig} → Interpretation sig → Hyperedge sig → Set
-_⊨-h_ i h with ⟦ label ⟧L (Data.List.map ⟦_⟧ dests)
+_⊨-h_ i h with ⟦ label ⟧L (Data.List.map ⟦_⟧N dests)
   where
     open Interpretation i
     open Hyperedge h
 ... | nothing = ⊥
-... | (just v) = ⟦ source ⟧ ≈ v
+... | (just v) = ⟦ source ⟧N ≈ v
   where
     open Interpretation i
     open Hyperedge h
@@ -85,14 +91,14 @@ data _⊨_ {sig : Sig} (i : Interpretation sig) (g : Hypergraph sig) : Set where
   yes : All (_⊨-h_ i) (Hypergraph.hyperedges g) → i ⊨ g
 
 data _Extends_ {sig sig' : Sig} (i' : Interpretation sig') (i : Interpretation sig) : Set where
-  yes : (sub : sig ⊆ sig') → ((n : Node sig) → ⟦_⟧ i n ≈ ⟦_⟧ i' (node2node sub n)) → i' Extends i
+  yes : (sub : sig ⊆ sig') → ((n : Node sig) → i ⟦ n ⟧ ≈ i' ⟦ (node2node sub n) ⟧) → i' Extends i
 
 Extends-refl : {sig : Sig} → Reflexive (_Extends_ {sig} {sig})
 Extends-refl {sig} {i} = yes sub f
   where
     sub : sig ⊆ sig
     sub = λ z → z
-    f : (n : Node sig) → ⟦_⟧ i n ≈ ⟦_⟧ i (node2node sub n)
+    f : (n : Node sig) → i ⟦ n ⟧ ≈ i ⟦ (node2node sub n) ⟧
     f (proj₁ , proj₂) = refl
 
 _⇛_ : {sig1 sig2 : Sig} → Hypergraph sig1 → Hypergraph sig2 → Set₁
@@ -144,3 +150,6 @@ shuffle→⇚⇛ {sig} {g1} {g2} equ =
     g1⊆g2 z∈g1 = Equivalence.to equ ⟨$⟩ z∈g1
     g2⊆g1 : (Hypergraph.hyperedges g2 ∼[ subset ] Hypergraph.hyperedges g1)
     g2⊆g1 z∈g2 = Equivalence.from equ ⟨$⟩ z∈g2
+
+
+--addHyperedge : {sig : Sig} → (g : Hypergraph sig) → Label → List (Node sig) → 
