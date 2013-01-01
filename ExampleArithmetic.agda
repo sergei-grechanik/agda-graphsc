@@ -33,8 +33,6 @@ open Hypergraph symbol ArithSemantics
 _,,_ : {A : Set} → (a b : A) → List A
 _,,_ a b = a ∷ b ∷ []
 
-_⇔_ : {sig : Sig} → List (Hyperedge sig) → List (Hyperedge sig) → Set
-_⇔_ lhs rhs = {!!}
-
-[+]-symm : {sig : Sig} → {a b c : Node sig} → [ a ▷ [+] ▷ (b ,, c) ]  ⇔  [ a ▷ [+] ▷ (c ,, b) ]
+[+]-symm : {sig : Sig} → {a b c : Node sig} → 
+           [ a ▷ [+] ▷ (b ,, c) ]  ⇚⇛  [ a ▷ [+] ▷ (c ,, b) ]
 [+]-symm = {!!}

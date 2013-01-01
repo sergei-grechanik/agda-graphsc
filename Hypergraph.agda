@@ -4,152 +4,202 @@ open import Util
 module Hypergraph (symbol : Symbol) (semantics : Semantics) where
 
 open import Function
+open import Function.Inverse
+open import Function.Equivalence
+open import Function.Equality
 open import Relation.Binary
+open import Relation.Binary.PropositionalEquality using (_≡_)
+open import Relation.Nullary.Core using (yes; no)
 open import Data.Empty
 open import Data.Nat
 open import Data.Product hiding (map)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.List
+open import Data.Sum
+open import Data.Maybe using (Maybe; just; nothing; Eq) renaming (setoid to eq-setoid)
+open import Data.List hiding (any)
 open import Data.List.All hiding (map)
-import Data.List.Any
+open import Data.List.All.Properties
+open import Data.List.Any using (Any; any; here; there) renaming (map to any-map)
+open import Data.List.Any.Properties using () renaming (++↔ to ++↔-any)
+open import Relation.Binary.List.Pointwise using ([]; _∷_) renaming (Rel to RelList)
 
-open Symbol symbol using (fresh) renaming (Carrier to Symb; setoid to SymbSetoid)
-open Data.List.Any.Membership SymbSetoid using (_⊆_; _∈_)
+open Symbol symbol using (fresh) renaming (Carrier to Symb)
+
+open import Relation.Binary.PropositionalEquality using (trans) renaming (setoid to ≡-setoid; refl to ≡-refl)
+open Data.List.Any.Membership-≡ 
 
 open Semantics semantics
-open Setoid domain using (_≈_; refl)
+open Setoid domain using (_≈_; refl) renaming (Carrier to Dom) 
 
 Sig : Set
 Sig = List Symb
 
-Node : Sig → Set
-Node sig = ∃ (λ s → s ∈ sig)
 
-node2node : {sig1 sig2 : Sig} → sig1 ⊆ sig2 → Node sig1 → Node sig2
-node2node sub (s , s∈sig1) = s , sub s∈sig1
+data Hyperedge : Set where
+  _▷_▷_ : Symb → Label → List Symb → Hyperedge
 
-record Hyperedge (sig : Sig) : Set where
+source : Hyperedge → Symb
+source (s ▷ l ▷ ds) = s
+
+dests : Hyperedge → List Symb
+dests (s ▷ l ▷ ds) = ds
+
+label : Hyperedge → Label
+label (s ▷ l ▷ ds) = l
+
+edge-nodes : Hyperedge → List Symb
+edge-nodes (source ▷ _ ▷ dests) = source ∷ dests
+
+
+Hypergraph : Set
+Hypergraph = List Hyperedge
+
+nodes : Hypergraph → List Symb
+nodes [] = []
+nodes (h ∷ hs) = edge-nodes h ++ nodes hs
+
+∈-nodes-lemma : {g : Hypergraph} → All (λ s → Any (λ h → s ∈ edge-nodes h) g) (nodes g)
+∈-nodes-lemma {[]} = []
+∈-nodes-lemma {h ∷ hs} with ∈-nodes-lemma {hs}
+... | hs-good = 
+  Inverse.to ++↔ ⟨$⟩ (
+    tabulate (λ x' → here x') , 
+    tabulate (λ x' → there (lookup hs-good x')))
+
+∈-nodes-lemma-inv : {g : Hypergraph} → {s : Symb} → Any (λ h → s ∈ edge-nodes h) g → s ∈ nodes g
+∈-nodes-lemma-inv {[]} ()
+∈-nodes-lemma-inv {h ∷ hs} (here s∈h) = Inverse.to ++↔-any ⟨$⟩ inj₁ s∈h
+∈-nodes-lemma-inv {h ∷ hs} (there s∈hs) = Inverse.to (++↔-any {xs = edge-nodes h}) ⟨$⟩ inj₂ s∈hs-nodes
+  where
+    s∈hs-nodes = ∈-nodes-lemma-inv s∈hs
+
+
+nodes-⊆ : {g1 g2 : Hypergraph} → g1 ⊆ g2 → nodes g1 ⊆ nodes g2
+nodes-⊆ {g1} {g2} sub s∈g1 with ∈-nodes-lemma {g1}
+... | all-ok with find s∈g1
+... | (s' , s'∈g1 , s≈s') = any-map (λ s'≈z → trans s≈s' s'≈z) (weaker s'∈g1)
+  where
+    f : ∀ {s} → Any (λ h → s ∈ edge-nodes h) g1 → Any (λ h → s ∈ edge-nodes h) g2
+    f in-g1 with find in-g1
+    ... | (h , h∈g1 , s∈h) = lose (sub h∈g1) s∈h
+
+    weaker : {x : Symb} → x ∈ nodes g1 → x ∈ nodes g2
+    weaker {x} x∈g1 = ∈-nodes-lemma-inv {g2} (f (lookup all-ok x∈g1))
+
+edge-nodes-⊆ : {g : Hypergraph} → {h : Hyperedge} → h ∈ g → edge-nodes h ⊆ nodes g
+edge-nodes-⊆ h∈g s∈h = ∈-nodes-lemma-inv (lose h∈g s∈h)
+
+edges-with-∈ : (g : Hypergraph) → List (∃ λ h → edge-nodes h ⊆ nodes g)
+edges-with-∈ g = map-with-∈ g (λ {h} h∈g → h , (λ {_} → edge-nodes-⊆ h∈g))
+
+
+
+
+record Interpretation (sig : Sig) : Set where
   field
-    source : Node sig
-    dests : List (Node sig)
-    label : Label
+    int : (s : Symb) → (s ∈ sig) → Dom
+    unambiguity : {s : Symb} → {w1 w2 : s ∈ sig} → int s w1 ≈ int s w2
 
-  nodes : List (Node sig)
-  nodes = source ∷ dests
+_⟦_,_⟧ : {sig : Sig} → Interpretation sig → (s : Symb) → s ∈ sig → Dom
+_⟦_,_⟧ i s s-ok = Interpretation.int i s s-ok
 
-  extsig : {sig' : Sig} → sig ⊆ sig' → Hyperedge sig'
-  extsig sub = 
-    record {
-      source = node2node sub source;
-      dests = map (node2node sub) dests;
-      label = label
-    }
+unambiguity : {sig : Sig} → (i : Interpretation sig) → {s : Symb} → {w1 w2 : s ∈ sig} → i ⟦ s , w1 ⟧ ≈ i ⟦ s , w2 ⟧
+unambiguity {sig} i {s} {w1} {w2} = Interpretation.unambiguity i {s} {w1} {w2}
+
+intlist : {sig : Sig} → Interpretation sig → (lst : List Symb) → lst ⊆ sig → List Dom
+intlist i lst lst⊆sig = map-with-∈ lst (λ {x} x∈lst → i ⟦ x , (lst⊆sig x∈lst) ⟧)
+
+intedge : {sig : Sig} → Interpretation sig → (h : Hyperedge) → source h ∈ sig → dests h ⊆ sig → Set
+intedge i h srcok dstok = 
+  Eq (Setoid._≈_ domain) (just (i ⟦ source h , srcok ⟧)) (⟦ label h ⟧L (intlist i (dests h) dstok))
+
+data _⊨[_] {sig : Sig} (i : Interpretation sig) (h : Hyperedge) : Set where
+  yes : (srcok : source h ∈ sig) → (dstok : dests h ⊆ sig) → intedge i h srcok dstok → i ⊨[ h ]
 
 
-_▷_▷_ : {sig : Sig} → Node sig → Label → List (Node sig) → Hyperedge sig
-_▷_▷_ n l ds = 
+modelled : (g : Hypergraph) → (i : Interpretation (nodes g)) → Set
+modelled g i = All (_⊨[_] i) g
+
+syntax modelled g i = i ⊨ g
+
+
+
+_≍_ : {sig sig' : Sig} → (i : Interpretation sig) → (i' : Interpretation sig') → Set
+_≍_ {sig} {sig'} i i' = (n : Symb) → {nok : n ∈ sig} → {nok' : n ∈ sig'} → i ⟦ n , nok ⟧ ≈ i' ⟦ n , nok' ⟧
+
+≍-refl : {sig : Sig} → Reflexive (_≍_ {sig} {sig})
+≍-refl {sig} {i} n = unambiguity i
+
+≍-intedge : {sig sig' : Sig} → {i : Interpretation sig} → {i' : Interpretation sig'} → i ≍ i' →
+            {h : Hyperedge} → {srcok : source h ∈ sig} → {dsok : dests h ⊆ sig} → 
+            {srcok' : source h ∈ sig'} → {dsok' : dests h ⊆ sig'} → 
+            intedge i h srcok dsok → intedge i' h srcok' dsok'
+≍-intedge {sig} {sig'} {i} {i'} i≍i' {src ▷ l ▷ ds} {srcok} {dsok} {srcok'} {dsok'} agrees =
+  eq-trans (eq-trans (eq-sym intseq) agrees) edgeseq
+  where
+    open Setoid (eq-setoid domain) using () renaming (sym to eq-sym; trans to eq-trans)
+
+    intseq : Eq _≈_ (just (i ⟦ src , srcok ⟧)) (just (i' ⟦ src , srcok' ⟧))
+    intseq = just (i≍i' src)
+
+    listeq : {ds : List Symb} → {dsok : ds ⊆ sig} → {dsok' : ds ⊆ sig'} → 
+             RelList _≈_ (intlist i ds dsok) (intlist i' ds dsok')
+    listeq {[]} = []
+    listeq {x ∷ xs} = (i≍i' x) ∷ listeq
+    
+    edgeseq : Eq _≈_ (⟦ l ⟧L intlist i ds dsok) (⟦ l ⟧L intlist i' ds dsok')
+    edgeseq = respect listeq
+
+
+
+≍-⊨ : {sig sig' : Sig} → {i : Interpretation sig} → {i' : Interpretation sig'} → i ≍ i' → 
+      {h : Hyperedge} → (edge-nodes h ⊆ sig') → i ⊨[ h ] → i' ⊨[ h ]
+≍-⊨ {sig} {sig'} {i} {i'} i≍i' {src ▷ l ▷ ds} h⊆sig' (yes srcok dstok y) = 
+  yes (h⊆sig' (here ≡-refl)) (λ d∈ds → h⊆sig' (there d∈ds)) 
+      (≍-intedge {i = i} {i' = i'} i≍i' {src ▷ l ▷ ds} y)
+
+restrict : {sig sig' : Sig} → sig' ⊆ sig → Interpretation sig → Interpretation sig'
+restrict sub i =
   record {
-    source = n;
-    label = l;
-    dests = ds
+    int = λ s sok → i ⟦ s , sub sok ⟧;
+    unambiguity = unambiguity i
   }
 
-record Hypergraph (sig : Sig) : Set₁ where
-  field
-    hyperedges : List (Hyperedge sig)
+restrict-≍ : {sig sig' : Sig} → {sub : sig' ⊆ sig} → (i : Interpretation sig) → i ≍ (restrict sub i)
+restrict-≍ i n = unambiguity i
 
-  nodes : List (Node sig)
-  nodes = concatMap Hyperedge.nodes hyperedges
+_⇛_ : Hypergraph → Hypergraph → Set
+_⇛_ g1 g2 = (i : Interpretation (nodes g1)) → i ⊨ g1 → Σ (Interpretation (nodes g2)) (λ i' → i ≍ i' × (i' ⊨ g2))
 
-  extsig : {sig' : Sig} → sig ⊆ sig' → Hypergraph sig'
-  extsig sub = record { hyperedges = map (λ h → Hyperedge.extsig h sub) hyperedges }
+_⇄_ : Hypergraph → Hypergraph → Set
+_⇄_ g1 g2 = (g1 ⇛ g2) × (g2 ⇛ g1) × nodes g1 ⊆ nodes g2
 
 
-record Interpretation (sig : Sig) : Set₁ where
-  open Data.List.Any.Membership SymbSetoid
-  field
-    ⟦_⟧N : Node sig → Setoid.Carrier domain
 
-_⟦_⟧ : {sig : Sig} → Interpretation sig → Node sig → Setoid.Carrier domain
-_⟦_⟧ i n = Interpretation.⟦_⟧N i n
-
-_⊨-h_ : {sig : Sig} → Interpretation sig → Hyperedge sig → Set
-_⊨-h_ i h with ⟦ label ⟧L (Data.List.map ⟦_⟧N dests)
+superset→⇛ : {g1 g2 : Hypergraph} →
+             (g2 ⊆ g1) →
+             g1 ⇛ g2
+superset→⇛ {g1} {g2} sup i i⊨g1 = 
+  newi ,  
+  are-≍  , 
+  tabulate f
   where
-    open Interpretation i
-    open Hyperedge h
-... | nothing = ⊥
-... | (just v) = ⟦ source ⟧N ≈ v
-  where
-    open Interpretation i
-    open Hyperedge h
+    newi : Interpretation (nodes g2)
+    newi = restrict (nodes-⊆ sup) i
+    are-≍ : i ≍ newi
+    are-≍ = restrict-≍ i
+    f : {h : Hyperedge} → h ∈ g2 → restrict (nodes-⊆ sup) i ⊨[ h ]
+    f h∈g2 = ≍-⊨ are-≍ (edge-nodes-⊆ h∈g2) (lookup i⊨g1 (sup h∈g2))
 
-
-open Interpretation
-
-data _⊨_ {sig : Sig} (i : Interpretation sig) (g : Hypergraph sig) : Set where
-  yes : All (_⊨-h_ i) (Hypergraph.hyperedges g) → i ⊨ g
-
-data _Extends_ {sig sig' : Sig} (i' : Interpretation sig') (i : Interpretation sig) : Set where
-  yes : (sub : sig ⊆ sig') → ((n : Node sig) → i ⟦ n ⟧ ≈ i' ⟦ (node2node sub n) ⟧) → i' Extends i
-
-Extends-refl : {sig : Sig} → Reflexive (_Extends_ {sig} {sig})
-Extends-refl {sig} {i} = yes sub f
-  where
-    sub : sig ⊆ sig
-    sub = λ z → z
-    f : (n : Node sig) → i ⟦ n ⟧ ≈ i ⟦ (node2node sub n) ⟧
-    f (proj₁ , proj₂) = refl
-
-_⇛_ : {sig1 sig2 : Sig} → Hypergraph sig1 → Hypergraph sig2 → Set₁
-_⇛_ {sig1} {sig2} g1 g2 = (i : Interpretation sig1) → i ⊨ g1 → ∃ (λ i' → (i' Extends i) × (i' ⊨ g2))
-
-_⇚_ : {sig1 sig2 : Sig} → Hypergraph sig1 → Hypergraph sig2 → Set₁
-_⇚_ {sig1} {sig2} g1 g2 = (i : Interpretation sig2) → i ⊨ g2 → ∃ (λ i' → (i Extends i') × (i' ⊨ g1))
-
-_⇚⇛_ : {sig1 sig2 : Sig} → Hypergraph sig1 → Hypergraph sig2 → Set₁
-_⇚⇛_ g1 g2 = (g1 ⇛ g2) × (g1 ⇚ g2)
-
-{-
-extsig-⇚⇛ : {sig1 sig2 : Sig} → {sub : sig1 ⊆ sig2} → {g : Hypergraph sig1} → 
-            g ⇚⇛ Hypergraph.extsig g sub
-extsig-⇚⇛ {sig1} {sig2} {sub} {g} = 
-  (λ i x → {!!} , {!!}) , 
-  {!!}
--}
-
-open Data.List.Any.Membership-≡ using (_∼[_]_;set;subset;superset)
-
-superset→⇛ : {sig  : Sig} → {g1 g2 : Hypergraph sig} →
-            (Hypergraph.hyperedges g2 ∼[ subset ] Hypergraph.hyperedges g1) →
-            g1 ⇛ g2
-superset→⇛ {sig} {g1} {g2} sup i (yes allh1) = 
-  i , Extends-refl , yes (anti-mono sup allh1)
-  where
-    open import Data.List.All.Properties
-
-subset→⇚ : {sig  : Sig} → {g1 g2 : Hypergraph sig} →
-            (Hypergraph.hyperedges g1 ∼[ subset ] Hypergraph.hyperedges g2) →
-            g1 ⇚ g2
-subset→⇚ {sig} {g1} {g2} sub i (yes allh2) = 
-  i , (Extends-refl , yes (anti-mono sub allh2))
-  where
-    open import Data.List.All.Properties
-
-
-shuffle→⇚⇛ : {sig  : Sig} → {g1 g2 : Hypergraph sig} →
-             (Hypergraph.hyperedges g1 ∼[ set ] Hypergraph.hyperedges g2) →
-             g1 ⇚⇛ g2
-shuffle→⇚⇛ {sig} {g1} {g2} equ = 
-  (superset→⇛ g2⊆g1) , (subset→⇚ g1⊆g2)
+shuffle→⇄ : {g1 g2 : Hypergraph} →
+             (g1 ∼[ set ] g2) →
+             g1 ⇄ g2
+shuffle→⇄ {g1} {g2} equ = 
+  (superset→⇛ g2⊆g1) , (superset→⇛ g1⊆g2) , nodes-⊆ g1⊆g2
   where
     open import Function.Equivalence
     open import Function.Equality
     open Data.List.Any.Membership-≡
-    g1⊆g2 : (Hypergraph.hyperedges g1 ∼[ subset ] Hypergraph.hyperedges g2)
+    g1⊆g2 : (g1 ∼[ subset ] g2)
     g1⊆g2 z∈g1 = Equivalence.to equ ⟨$⟩ z∈g1
-    g2⊆g1 : (Hypergraph.hyperedges g2 ∼[ subset ] Hypergraph.hyperedges g1)
+    g2⊆g1 : (g2 ∼[ subset ] g1)
     g2⊆g1 z∈g2 = Equivalence.from equ ⟨$⟩ z∈g2
-
-
---addHyperedge : {sig : Sig} → (g : Hypergraph sig) → Label → List (Node sig) → 
