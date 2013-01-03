@@ -28,14 +28,25 @@ open Setoid domain using (_≈_; refl) renaming (Carrier to Dom; sym to ≈-sym;
 import Hypergraph.Core
 open Hypergraph.Core symbol semantics
 
+-- A signature is just a list of symbols.
 
 Sig : Set
 Sig = List Symb
+
+-- An interpretation.
+-- It contains a function int that takes a symbol and a 
+-- witness that it belongs to the signature, and returns
+-- its corresponding value (interpretation) in Dom.
+--
+-- It also contains a statement unambiguity that states
+-- that the function int returns the same thing for each witness.
 
 record Interpretation (sig : Sig) : Set where
   field
     int : (s : Symb) → (s ∈ sig) → Dom
     unambiguity : {s : Symb} → {w1 w2 : s ∈ sig} → int s w1 ≈ int s w2
+
+-- i ⟦ s , s∈sig ⟧ returns the value of s.
 
 _⟦_,_⟧ : {sig : Sig} → Interpretation sig → (s : Symb) → s ∈ sig → Dom
 _⟦_,_⟧ i s s-ok = Interpretation.int i s s-ok
@@ -43,23 +54,39 @@ _⟦_,_⟧ i s s-ok = Interpretation.int i s s-ok
 unambiguity : {sig : Sig} → (i : Interpretation sig) → {s : Symb} → {w1 w2 : s ∈ sig} → i ⟦ s , w1 ⟧ ≈ i ⟦ s , w2 ⟧
 unambiguity {sig} i {s} {w1} {w2} = Interpretation.unambiguity i {s} {w1} {w2}
 
+-- intlist returns a list of values for a list of symbols.
+
 intlist : {sig : Sig} → Interpretation sig → (lst : List Symb) → lst ⊆ sig → List Dom
 intlist i lst lst⊆sig = map-with-∈ lst (λ {x} x∈lst → i ⟦ x , (lst⊆sig x∈lst) ⟧)
+
+-- intedge returns the interpretation of a hyperedge which is true or false
+-- depending on the values of symbols (generally speaking 
+-- it's undecidable whether it's true or false).
 
 intedge : {sig : Sig} → Interpretation sig → (h : Hyperedge) → source h ∈ sig → dests h ⊆ sig → Set
 intedge i h srcok dstok = 
   Eq (Setoid._≈_ domain) (just (i ⟦ source h , srcok ⟧)) (⟦ label h ⟧L (intlist i (dests h) dstok))
 
+
+-- i ⊨[ h ] means that i agrees with the hyperedge h 
+-- (i.e. the source of h is equivalent to the composition of its dests and label)
+
 data _⊨[_] {sig : Sig} (i : Interpretation sig) (h : Hyperedge) : Set where
   yes : (srcok : source h ∈ sig) → (dstok : dests h ⊆ sig) → intedge i h srcok dstok → i ⊨[ h ]
 
+
+-- An interpretation is a model of a hypergraph if it agrees with all its hyperedges.
+-- Written i ⊨ g.
 
 modelled : (g : Hypergraph) → (i : Interpretation (nodes g)) → Set
 modelled g i = All (_⊨[_] i) g
 
 syntax modelled g i = i ⊨ g
 
+----------------------------------------------------------------------------------------------------
 
+-- i1 ≍ i2 means that they are equal on the intersection of their signatures.
+-- This relation is reflexive, symmetric, but not transitive.
 
 _≍_ : {sig sig' : Sig} → (i : Interpretation sig) → (i' : Interpretation sig') → Set
 _≍_ {sig} {sig'} i i' = (n : Symb) → {nok : n ∈ sig} → {nok' : n ∈ sig'} → i ⟦ n , nok ⟧ ≈ i' ⟦ n , nok' ⟧
@@ -69,6 +96,8 @@ _≍_ {sig} {sig'} i i' = (n : Symb) → {nok : n ∈ sig} → {nok' : n ∈ sig
 
 ≍-sym : {sig sig' : Sig} → Sym (_≍_ {sig} {sig'}) (_≍_ {sig'} {sig})
 ≍-sym {sig} {sig'} f n {nok} {nok'} = ≈-sym (f n)
+
+-- Lemma which we need to prove the next statement.
 
 ≍-intedge : {sig sig' : Sig} → {i : Interpretation sig} → {i' : Interpretation sig'} → i ≍ i' →
             {h : Hyperedge} → {srcok : source h ∈ sig} → {dsok : dests h ⊆ sig} → 
@@ -91,12 +120,15 @@ _≍_ {sig} {sig'} i i' = (n : Symb) → {nok : n ∈ sig} → {nok' : n ∈ sig
     edgeseq = respect listeq
 
 
+-- "Equivalent" interpretations agree on hyperedges made of their common symbols.
 
 ≍-⊨ : {sig sig' : Sig} → {i : Interpretation sig} → {i' : Interpretation sig'} → i ≍ i' → 
       {h : Hyperedge} → (edge-nodes h ⊆ sig') → i ⊨[ h ] → i' ⊨[ h ]
 ≍-⊨ {sig} {sig'} {i} {i'} i≍i' {src ▷ l ▷ ds} h⊆sig' (yes srcok dstok y) = 
   yes (h⊆sig' (here ≡-refl)) (λ d∈ds → h⊆sig' (there d∈ds)) 
       (≍-intedge {i = i} {i' = i'} i≍i' {src ▷ l ▷ ds} y)
+
+-- We can restrict an interpretation to a subsignature.
 
 restrict : {sig sig' : Sig} → sig' ⊆ sig → Interpretation sig → Interpretation sig'
 restrict sub i =
@@ -105,16 +137,35 @@ restrict sub i =
     unambiguity = unambiguity i
   }
 
+-- The restricted interpretation is "equivalent" to the original one.
+
 restrict-≍ : {sig sig' : Sig} → {sub : sig' ⊆ sig} → (i : Interpretation sig) → i ≍ (restrict sub i)
 restrict-≍ i n = unambiguity i
 
+----------------------------------------------------------------------------------------------------
+
+-- g1 ⇛ g2 means that g2 is a consequence of g1, that is
+-- for every interpretation of g1 there is an "equivalent" (≍)
+-- interpretation of g2.
+
 _⇛_ : Hypergraph → Hypergraph → Set
 _⇛_ g1 g2 = (i : Interpretation (nodes g1)) → i ⊨ g1 → Σ (Interpretation (nodes g2)) (λ i' → i ≍ i' × (i' ⊨ g2))
+
+-- TODO: We need transitivity of ⇛ and ⇄
+
+-- g1 ⇄ g2 means that these graphs are equal on their common nodes 
+-- and there are no nodes removed in g2.
+-- It is what we want from transformations: we preserve equivalence
+-- and don't throw away any nodes.
 
 _⇄_ : Hypergraph → Hypergraph → Set
 _⇄_ g1 g2 = (g1 ⇛ g2) × (g2 ⇛ g1) × nodes g1 ⊆ nodes g2
 
 
+----------------------------------------------------------------------------------------------------
+
+-- If a we add hyperedges to a graph then we get a
+-- graph-consequence.
 
 superset→⇛ : {g1 g2 : Hypergraph} →
              (g2 ⊆ g1) → g1 ⇛ g2
@@ -130,6 +181,9 @@ superset→⇛ {g1} {g2} sup i i⊨g1 =
     f : {h : Hyperedge} → h ∈ g2 → restrict (nodes-⊆ sup) i ⊨[ h ]
     f h∈g2 = ≍-⊨ are-≍ (edge-nodes-⊆ h∈g2) (lookup i⊨g1 (sup h∈g2))
 
+-- If we shuffle hyperedges in a graph then we get
+-- an equivalent graph.
+
 shuffle→⇄ : {g1 g2 : Hypergraph} →
             (g1 ∼[ set ] g2) → g1 ⇄ g2
 shuffle→⇄ {g1} {g2} equ = 
@@ -141,6 +195,9 @@ shuffle→⇄ {g1} {g2} equ =
     g2⊆g1 : (g2 ∼[ subset ] g1)
     g2⊆g1 z∈g2 = Equivalence.from equ ⟨$⟩ z∈g2
 
+----------------------------------------------------------------------------------------------------
+
+-- I think these should be in the stdlib but I haven't found them.
 
 ++→-any : ∀ {a p} {A : Set a} {P : A → Set p} {xs ys} →
           Any P xs → Any P (xs ++ ys)
@@ -156,6 +213,10 @@ shuffle→⇄ {g1} {g2} equ =
 ⊆-++₂ : {g1 g2 : Hypergraph} → g2 ⊆ (g1 ++ g2)
 ⊆-++₂ {g1} {g2} x∈g2 = ++→-any₂ {xs = g1} {ys = g2} x∈g2
 
+----------------------------------------------------------------------------------------------------
+-- Some important lemmas and theorems about subgraph.
+
+-- We can split an interpretation into two.
 
 split-int : {g1 g2 : Hypergraph} → {i : Interpretation (nodes (g1 ++ g2))} →
             i ⊨ (g1 ++ g2) → ∃ λ i1 → ∃ λ i2 → i ≍ i1 × i ≍ i2 × (i1 ⊨ g1) × (i2 ⊨ g2)
@@ -165,6 +226,9 @@ split-int {g1} {g2} {i} i⊨g1++g2
   with superset→⇛ (⊆-++₂ {g1} {g2}) i i⊨g1++g2
 ... | (i2 , i≍i2 , i2⊨g2) = 
   i1 , i2 , i≍i1 , i≍i2 , i1⊨g1 , i2⊨g2
+
+-- If we have two interpretations for two graphs
+-- and they are ≍ then we can glue them together.
 
 join-int : {g1 g2 : Hypergraph} → {i1 : Interpretation (nodes g1)} → {i2 : Interpretation (nodes g2)} →
            i1 ⊨ g1 → i2 ⊨ g2 → i1 ≍ i2 → ∃ λ i → i1 ≍ i × i2 ≍ i × (i ⊨ (g1 ++ g2))
@@ -211,8 +275,24 @@ join-int {g1} {g2} {i1} {i2} i1⊨g1 i2⊨g2 i1≍i2 =
     ... | (inj₁ h∈g1) = ≍-⊨ i1≍newi (edge-nodes-⊆ (⊆-++ h∈g1)) (lookup i1⊨g1 h∈g1)
     ... | (inj₂ h∈g2) = ≍-⊨ i2≍newi (edge-nodes-⊆ (⊆-++₂ {g1} {g2} h∈g2)) (lookup i2⊨g2 h∈g2)
 
+
+-- The main theorem.
+-- If we replace a subgraph of a graph with a subraph-consequence
+-- then we get a graph that is a consequence of the original graph.
+-- There is an important precondition: 
+-- {s : Symb} → s ∈ nodes g2 → s ∈ nodes g → s ∈ nodes g1
+-- i.e.  g2 ∩ g ⊆ g1
+-- It means that the subgraph-consequence (g2) can contain either
+-- symbols from old subgraph (g1) or fresh symbols (that aren't from 
+-- the unchanged part of the graph), so there is no name collision.
+--
+-- The proof is quite straightforward: split the interpretation,
+-- transform the left part, then join it back.
+-- The only problem is the lack of transitivity of ≍. That's why
+-- we need the nocol precondition.
+
 ⇛-++ : {g1 g2 g : Hypergraph} → 
-       ({s : Symb} → s ∈ nodes g2 → s ∈ nodes g → s ∈ nodes g1) → -- no name collisions
+       ({s : Symb} → s ∈ nodes g2 → s ∈ nodes g → s ∈ nodes g1) →
        g1 ⇛ g2 → (g1 ++ g) ⇛ (g2 ++ g)
 ⇛-++ {g1} {g2} {g} nocol g1⇛g2 i1 i1⊨g1++g with split-int i1⊨g1++g
 ... | (j1 , j , i1≍j1 , i1≍j , j1⊨g1 , j⊨g) with g1⇛g2 j1 j1⊨g1
@@ -237,3 +317,25 @@ join-int {g1} {g2} {i1} {i2} i1⊨g1 i2⊨g2 i1≍i2 =
     ... | (inj₁ x11) | (inj₂ x22) = ≈-trans (i1≍j n {n∈g1++g} {x22}) (j≍i2 n)
     ... | (inj₂ x12) | (inj₁ x21) = ≈-trans (i1≍j n {n∈g1++g} {x12}) (j≍i2 n)
     ... | (inj₂ x12) | (inj₂ x22) = ≈-trans (i1≍j n {n∈g1++g} {x12}) (j≍i2 n)
+
+
+-- Corollary.
+-- We can replace a subgraph with an equivalent subgraph if
+-- there is no name collisions.
+
+⇄-++ : {g1 g2 g : Hypergraph} → 
+       ({s : Symb} → s ∈ nodes g2 → s ∈ nodes g → s ∈ nodes g1) →
+       g1 ⇄ g2 → (g1 ++ g) ⇄ (g2 ++ g)
+⇄-++ {g1} {g2} {g} nocol (g1⇛g2 , g2⇛g1 , g1⊆g2) = 
+  ⇛-++ {g1} {g2} {g} nocol g1⇛g2 , 
+  ⇛-++ {g2} {g1} {g} (λ s∈g1 s∈g → g1⊆g2 s∈g1) g2⇛g1 , 
+  sub
+  where
+    sub : nodes (g1 ++ g) ⊆ nodes (g2 ++ g)
+    sub x' with Inverse.from (++↔-any {xs = nodes g1} {ys = nodes g}) ⟨$⟩ ∈-nodes-++ {g1} {g} x'
+    ... | (inj₁ s∈g1) = 
+      ∈-nodes-++-inv {g2} {g} 
+        (Inverse.to (++↔-any {xs = nodes g2} {ys = nodes g}) ⟨$⟩ inj₁ (g1⊆g2 s∈g1))
+    ... | (inj₂ s∈g) = 
+      ∈-nodes-++-inv {g2} {g}
+        (Inverse.to (++↔-any {xs = nodes g2} {ys = nodes g}) ⟨$⟩ inj₂ s∈g)
