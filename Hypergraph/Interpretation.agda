@@ -4,8 +4,8 @@ open import Util
 module Hypergraph.Interpretation (symbol : Symbol) (semantics : Semantics) where
 
 open import Function
-open import Function.Inverse
-open import Function.Equality
+open import Function.Inverse hiding (_∘_)
+open import Function.Equality hiding (_∘_)
 open import Relation.Binary
 open import Data.Product hiding (map)
 open import Data.Maybe using (Maybe; just; nothing; Eq) renaming (setoid to eq-setoid)
@@ -89,7 +89,7 @@ syntax modelled g i = i ⊨ g
 -- This relation is reflexive, symmetric, but not transitive.
 
 _≍_ : {sig sig' : Sig} → (i : Interpretation sig) → (i' : Interpretation sig') → Set
-_≍_ {sig} {sig'} i i' = (n : Symb) → {nok : n ∈ sig} → {nok' : n ∈ sig'} → i ⟦ n , nok ⟧ ≈ i' ⟦ n , nok' ⟧
+_≍_ {sig} {sig'} i i' = (n : Symb) → {n∈sig : n ∈ sig} → {n∈sig' : n ∈ sig'} → i ⟦ n , n∈sig ⟧ ≈ i' ⟦ n , n∈sig' ⟧
 
 ≍-refl : {sig : Sig} → Reflexive (_≍_ {sig} {sig})
 ≍-refl {sig} {i} n = unambiguity i
@@ -151,8 +151,6 @@ restrict-≍ i n = unambiguity i
 _⇛_ : Hypergraph → Hypergraph → Set
 _⇛_ g1 g2 = (i : Interpretation (nodes g1)) → i ⊨ g1 → Σ (Interpretation (nodes g2)) (λ i' → i ≍ i' × (i' ⊨ g2))
 
--- TODO: We need transitivity of ⇛ and ⇄
-
 -- g1 ⇄ g2 means that these graphs are equal on their common nodes 
 -- and there are no nodes removed in g2.
 -- It is what we want from transformations: we preserve equivalence
@@ -161,6 +159,27 @@ _⇛_ g1 g2 = (i : Interpretation (nodes g1)) → i ⊨ g1 → Σ (Interpretatio
 _⇄_ : Hypergraph → Hypergraph → Set
 _⇄_ g1 g2 = (g1 ⇛ g2) × (g2 ⇛ g1) × nodes g1 ⊆ nodes g2
 
+-- ⇄ is transitive.
+-- Note that ⇛ is not transitive
+
+⇄-trans : Transitive _⇄_
+⇄-trans {i = g1} {j = g2} {k = g3} (g1⇛g2 , g2⇛g1 , g1⊆g2) (g2⇛g3 , g3⇛g2 , g2⊆g3) = 
+  g1⇛g3 , g3⇛g1 , g2⊆g3 ∘ g1⊆g2
+  where
+    g1⇛g3 : g1 ⇛ g3
+    g1⇛g3 i i⊨g1 with g1⇛g2 i i⊨g1
+    ... | (i' , i≍i' , i'⊨g2) with g2⇛g3 i' i'⊨g2
+    ... | (i'' , i'≍i'' , i''⊨g3) = (i'' , i≍i'' , i''⊨g3)
+      where
+        i≍i'' : i ≍ i''
+        i≍i'' n {n∈g1} {n∈g3} = ≈-trans (i≍i' n {n∈g1} {g1⊆g2 n∈g1}) (i'≍i'' n)
+    g3⇛g1 : g3 ⇛ g1
+    g3⇛g1 i i⊨g3 with g3⇛g2 i i⊨g3
+    ... | (i' , i≍i' , i'⊨g2) with g2⇛g1 i' i'⊨g2
+    ... | (i'' , i'≍i'' , i''⊨g1) = (i'' , i≍i'' , i''⊨g1)
+      where
+        i≍i'' : i ≍ i''
+        i≍i'' n {n∈g3} {n∈g1} = ≈-trans (i≍i' n {n∈g3} {g1⊆g2 n∈g1}) (i'≍i'' n)
 
 ----------------------------------------------------------------------------------------------------
 
@@ -195,6 +214,13 @@ shuffle→⇄ {g1} {g2} equ =
     g2⊆g1 : (g2 ∼[ subset ] g1)
     g2⊆g1 z∈g2 = Equivalence.from equ ⟨$⟩ z∈g2
 
+-- Almost the same thing.
+
+subsuper→⇄ : {g1 g2 : Hypergraph} →
+             (g1 ⊆ g2) → (g2 ⊆ g1) → g1 ⇄ g2
+subsuper→⇄ g1⊆g2 g2⊆g1 =
+  (superset→⇛ g2⊆g1) , (superset→⇛ g1⊆g2) , nodes-⊆ g1⊆g2
+
 ----------------------------------------------------------------------------------------------------
 
 -- I think these should be in the stdlib but I haven't found them.
@@ -216,6 +242,7 @@ shuffle→⇄ {g1} {g2} equ =
 ----------------------------------------------------------------------------------------------------
 -- Some important lemmas and theorems about subgraph.
 
+
 -- We can split an interpretation into two.
 
 split-int : {g1 g2 : Hypergraph} → {i : Interpretation (nodes (g1 ++ g2))} →
@@ -226,6 +253,7 @@ split-int {g1} {g2} {i} i⊨g1++g2
   with superset→⇛ (⊆-++₂ {g1} {g2}) i i⊨g1++g2
 ... | (i2 , i≍i2 , i2⊨g2) = 
   i1 , i2 , i≍i1 , i≍i2 , i1⊨g1 , i2⊨g2
+
 
 -- If we have two interpretations for two graphs
 -- and they are ≍ then we can glue them together.
@@ -321,7 +349,7 @@ join-int {g1} {g2} {i1} {i2} i1⊨g1 i2⊨g2 i1≍i2 =
 
 -- Corollary.
 -- We can replace a subgraph with an equivalent subgraph if
--- there is no name collisions.
+-- there are no name collisions.
 
 ⇄-++ : {g1 g2 g : Hypergraph} → 
        ({s : Symb} → s ∈ nodes g2 → s ∈ nodes g → s ∈ nodes g1) →
@@ -339,3 +367,35 @@ join-int {g1} {g2} {i1} {i2} i1⊨g1 i2⊨g2 i1≍i2 =
     ... | (inj₂ s∈g) = 
       ∈-nodes-++-inv {g2} {g}
         (Inverse.to (++↔-any {xs = nodes g2} {ys = nodes g}) ⟨$⟩ inj₂ s∈g)
+
+
+-- If we have a transformation that creates a graph-consequence
+-- then we can make from it another transformation that
+-- just appends a new graph to the original. This new
+-- transformation will preserve equivalence.
+-- In short, (A → B) → (A ↔ A × B)
+
+⇛-++-⇄ : {g1 g2 : Hypergraph} →
+         g1 ⇛ g2 → g1 ⇄ (g2 ++ g1)
+⇛-++-⇄ {g1} {g2} g1⇛g2 = 
+  ⇄-trans {g1} {g1 ++ g1} {g2 ++ g1} g1⇄g1g1 g1g1⇄g2g1
+  where
+    g1⇄g1g1 : g1 ⇄ (g1 ++ g1)
+    g1⇄g1g1 = subsuper→⇄ ⊆-++ (λ h∈g1g1 → [ (λ x → x) , (λ x → x) ]′ (Inverse.from (++↔-any {xs = g1} {ys = g1}) ⟨$⟩ h∈g1g1))
+
+    g1g1⇄g2g1 : (g1 ++ g1) ⇄ (g2 ++ g1)
+    g1g1⇄g2g1 = 
+      (⇛-++ {g1} {g2} {g1} (λ ∈g2 ∈g1 → ∈g1) g1⇛g2) , 
+      superset→⇛ g1g1⊆g2g1 ,
+      nodes-⊆ g1g1⊆g2g1
+      where
+        g1g1⊆g2g1 : (g1 ++ g1) ⊆ (g2 ++ g1)
+        g1g1⊆g2g1 ∈g1g1 = 
+          ⊆-++₂ {g2} {g1} 
+            ([ (λ x → x) , (λ x → x) ]′ (Inverse.from (++↔-any {xs = g1} {ys = g1}) ⟨$⟩ ∈g1g1))
+
+-- Same thing for ⇄.
+
+⇄-++-⇄ : {g1 g2 : Hypergraph} →
+         g1 ⇄ g2 → g1 ⇄ (g2 ++ g1)
+⇄-++-⇄ {g1} {g2} (g1⇛g2 , _ , _) = ⇛-++-⇄ {g1} {g2} g1⇛g2
