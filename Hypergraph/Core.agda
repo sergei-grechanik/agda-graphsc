@@ -6,7 +6,9 @@ module Hypergraph.Core (symbol : Symbol) (semantics : Semantics) where
 open import Function
 open import Function.Inverse
 open import Function.Equality
+open import Relation.Nullary
 open import Relation.Binary
+open import Data.Empty
 open import Data.Product hiding (map)
 open import Data.Sum
 open import Data.List hiding (any)
@@ -16,7 +18,7 @@ open import Data.List.Any using (Any; any; here; there) renaming (map to any-map
 open import Data.List.Any.Properties using () renaming (++↔ to ++↔-any)
 import Algebra
 
-open Symbol symbol using () renaming (Carrier to Symb)
+open Symbol symbol using (≡-decidable) renaming (Carrier to Symb)
 
 open import Relation.Binary.PropositionalEquality using (_≡_; subst) 
   renaming (setoid to ≡-setoid; refl to ≡-refl; sym to ≡-sym; trans to ≡-trans; cong to ≡-cong)
@@ -41,6 +43,57 @@ label (s ▷ l ▷ ds) = l
 
 edge-nodes : Hyperedge → List Symb
 edge-nodes (source ▷ _ ▷ dests) = source ∷ dests
+
+-- This is a trick to build decidability of ≡ using injective functions.
+-- Again, it should be in stdlib, but I haven't found it there.
+
+make-≟ : ∀ {a b} {A : Set a} {B : Set b} → 
+         (to : A → B) → (∀ {x y} → to x ≡ to y → x ≡ y) → 
+         Decidable (_≡_ {A = B}) → Decidable (_≡_ {A = A})
+make-≟ to inj _~_ x y with to x ~ to y
+... | yes tox≡toy = yes (inj tox≡toy)
+... | no ¬tox≡toy = no (λ x≡y → ¬tox≡toy (≡-cong to x≡y))
+
+_×-≟_ : ∀ {a b} {A : Set a} {B : Set b} →
+        Decidable (_≡_ {A = A}) → Decidable (_≡_ {A = B}) →
+        Decidable (_≡_ {A = A × B})
+_×-≟_ _~A_  _~B_ (a1 , b1) (a2 , b2) 
+  with a1 ~A a2 | b1 ~B b2
+... | yes a | yes b rewrite a | b = yes ≡-refl
+... | no na | _ = no (λ x → na (≡-cong proj₁ x))
+... | _ | no nb = no (λ x → nb (≡-cong proj₂ x))
+
+≡-head : ∀ {a} {A : Set a} {x1 x2 : A} {xs1 xs2 : List A} →
+         (_≡_ {A = List A} (x1 ∷ xs1) (x2 ∷ xs2)) → x1 ≡ x2
+≡-head ≡-refl = ≡-refl
+
+≡-tail : ∀ {a} {A : Set a} {x1 x2 : A} {xs1 xs2 : List A} →
+         (_≡_ {A = List A} (x1 ∷ xs1) (x2 ∷ xs2)) → xs1 ≡ xs2
+≡-tail ≡-refl = ≡-refl
+
+[]-≟ : ∀ {a} {A : Set a} →
+       Decidable (_≡_ {A = A}) → Decidable (_≡_ {A = List A})
+[]-≟ _~_ [] [] = yes ≡-refl
+[]-≟ _~_ [] (x ∷ xs) = no (λ ())
+[]-≟ _~_ (x ∷ xs) [] = no (λ ())
+[]-≟ {A = A} _~_ (x ∷ xs) (x' ∷ xs') with x ~ x'
+... | no np = no (λ x0 → np (≡-head x0))
+... | yes p rewrite p with []-≟ _~_ xs xs'
+... | yes ps rewrite ps = yes ≡-refl
+... | no nps = no (λ x0 → nps (≡-tail x0))
+
+-- ≡ is decidable for hyperedges
+
+hyperedge2tuple : Hyperedge → Symb × Label × List Symb
+hyperedge2tuple h = source h , label h , dests h
+
+hyperedge2tuple-inj : ∀ {h1 h2} → hyperedge2tuple h1 ≡ hyperedge2tuple h2 → h1 ≡ h2
+hyperedge2tuple-inj {y ▷ y' ▷ y0} {.y ▷ .y' ▷ .y0} ≡-refl = ≡-refl
+
+hyperedge-≡-decidable : Decidable (_≡_ {A = Hyperedge})
+hyperedge-≡-decidable = 
+  make-≟ hyperedge2tuple hyperedge2tuple-inj 
+         (≡-decidable ×-≟ (label-≡-decidable ×-≟ []-≟ ≡-decidable))
 
 -- A hypergraph is a list of hyperedges.
 
@@ -121,3 +174,67 @@ nodes-++ {x ∷ xs} {g2} =
 ∈-nodes-++-inv : {g1 g2 : Hypergraph} → {s : Symb} → s ∈ (nodes g1 ++ nodes g2) → s ∈ nodes (g1 ++ g2)
 ∈-nodes-++-inv {g1} {g2} {s} s∈g1g2 =
   subst (_∈_ s) (≡-sym (nodes-++ {g1} {g2})) s∈g1g2
+
+
+
+----------------------------------------------------------------------------------------------------
+
+-- I think these should be in the stdlib but I haven't found them.
+
+++→-any : ∀ {a p} {A : Set a} {P : A → Set p} {xs ys} →
+          Any P xs → Any P (xs ++ ys)
+++→-any pxs = Inverse.to ++↔-any ⟨$⟩ (inj₁ pxs)
+
+++→-any₂ : ∀ {a p} {A : Set a} {P : A → Set p} {xs ys} →
+          Any P ys → Any P (xs ++ ys)
+++→-any₂ {xs = xs} {ys = ys} pxs = Inverse.to (++↔-any {xs = xs} {ys = ys}) ⟨$⟩ (inj₂ pxs)
+
+⊆-++ : {g1 g2 : Hypergraph} → g1 ⊆ (g1 ++ g2)
+⊆-++ x∈g1 = ++→-any x∈g1
+
+⊆-++₂ : {g1 g2 : Hypergraph} → g2 ⊆ (g1 ++ g2)
+⊆-++₂ {g1} {g2} x∈g2 = ++→-any₂ {xs = g1} {ys = g2} x∈g2
+
+----------------------------------------------------------------------------------------------------
+
+-- Hypergraph subtraction.
+
+_−_ : (g1 g2 : Hypergraph) → Hypergraph
+[] − g2 = []
+(h ∷ hs) − g2 with any (hyperedge-≡-decidable h) g2
+... | yes h∈g2 = hs − g2
+... | no _ = h ∷ hs − g2
+
+−-∈ : {g1 g2 : Hypergraph} → {h : Hyperedge} →
+      h ∈ g1 → ¬ (h ∈ g2) → h ∈ (g1 − g2)
+−-∈ {[]} () ¬h∈g2
+−-∈ {x ∷ xs} {g2} {h} (there pxs) ¬h∈g2 with any (hyperedge-≡-decidable x) g2
+... | yes h∈g2 = −-∈ pxs ¬h∈g2
+... | no _ = there (−-∈ pxs ¬h∈g2)
+−-∈ {.h ∷ xs} {g2} {h} (here ≡-refl) ¬h∈g2 with any (hyperedge-≡-decidable h) g2
+... | yes h∈g2 = ⊥-elim (¬h∈g2 h∈g2)
+... | no _ = here ≡-refl
+
+−-∈-inv : {g1 g2 : Hypergraph} → {h : Hyperedge} →
+          h ∈ (g1 − g2) → h ∈ g1 × ¬ (h ∈ g2)
+−-∈-inv {[]} ()
+−-∈-inv {x ∷ xs} {g2} {h} h∈g1−g2 with any (hyperedge-≡-decidable x) g2
+... | yes x∈g2 = Data.Product.map there Function.id (−-∈-inv h∈g1−g2)
+−-∈-inv {.h ∷ xs} {g2} {h} (here ≡-refl) | no x∉g2 = here ≡-refl , x∉g2
+−-∈-inv {x ∷ xs} {g2} {h} (there pxs) | no x∉g2 = 
+  Data.Product.map there Function.id (−-∈-inv pxs)
+
+-- And its connection to ++ and ⊆.
+
+−-++-⊆ : {g1 g2 : Hypergraph} →
+         g1 ⊆ (g2 ++ (g1 − g2))
+−-++-⊆ {g1} {g2} {x = x} x∈g1 with any (hyperedge-≡-decidable x) g2
+... | (yes x∈g2) = ⊆-++ x∈g2
+... | (no ¬x∈g2) = ⊆-++₂ {g2} {g1 − g2} (−-∈ x∈g1 ¬x∈g2)
+
+−-++-⊆-inv : {g1 g2 : Hypergraph} →
+             g2 ⊆ g1 →
+             (g2 ++ (g1 − g2)) ⊆ g1
+−-++-⊆-inv {g1} {g2} g2⊆g1 h∈++ with Inverse.from (++↔-any {xs = g2} {ys = g1 − g2}) ⟨$⟩ h∈++
+... | inj₂ h∈g1−g2 = proj₁ (−-∈-inv h∈g1−g2)
+... | inj₁ h∈g2 = g2⊆g1 h∈g2

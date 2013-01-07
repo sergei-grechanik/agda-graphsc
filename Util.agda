@@ -20,6 +20,7 @@ record Symbol : Set₁ where
 record Semantics : Set₁ where
   field
     Label : Set
+    label-≡-decidable : Decidable (_≡_ {A = Label})
     domain : Setoid Level.zero Level.zero
     ⟦_⟧L_ : Label → List (Setoid.Carrier domain) → Maybe (Setoid.Carrier domain)
     respect : {l : Label} → {ds1 ds2 : List (Setoid.Carrier domain)} → 

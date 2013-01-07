@@ -222,24 +222,6 @@ subsuper→⇄ g1⊆g2 g2⊆g1 =
   (superset→⇛ g2⊆g1) , (superset→⇛ g1⊆g2) , nodes-⊆ g1⊆g2
 
 ----------------------------------------------------------------------------------------------------
-
--- I think these should be in the stdlib but I haven't found them.
-
-++→-any : ∀ {a p} {A : Set a} {P : A → Set p} {xs ys} →
-          Any P xs → Any P (xs ++ ys)
-++→-any pxs = Inverse.to ++↔-any ⟨$⟩ (inj₁ pxs)
-
-++→-any₂ : ∀ {a p} {A : Set a} {P : A → Set p} {xs ys} →
-          Any P ys → Any P (xs ++ ys)
-++→-any₂ {xs = xs} {ys = ys} pxs = Inverse.to (++↔-any {xs = xs} {ys = ys}) ⟨$⟩ (inj₂ pxs)
-
-⊆-++ : {g1 g2 : Hypergraph} → g1 ⊆ (g1 ++ g2)
-⊆-++ x∈g1 = ++→-any x∈g1
-
-⊆-++₂ : {g1 g2 : Hypergraph} → g2 ⊆ (g1 ++ g2)
-⊆-++₂ {g1} {g2} x∈g2 = ++→-any₂ {xs = g1} {ys = g2} x∈g2
-
-----------------------------------------------------------------------------------------------------
 -- Some important lemmas and theorems about subgraph.
 
 
