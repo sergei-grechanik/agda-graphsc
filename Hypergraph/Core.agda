@@ -3,10 +3,13 @@ open import Util
 
 module Hypergraph.Core (symbol : Symbol) (semantics : Semantics) where
 
+open import ListUtil
+
 open import Function
 open import Function.Inverse
 open import Function.Equality
 open import Relation.Nullary
+open import Relation.Nullary.Decidable
 open import Relation.Binary
 open import Data.Empty
 open import Data.Product hiding (map)
@@ -43,44 +46,6 @@ label (s ▷ l ▷ ds) = l
 
 edge-nodes : Hyperedge → List Symb
 edge-nodes (source ▷ _ ▷ dests) = source ∷ dests
-
--- This is a trick to build decidability of ≡ using injective functions.
--- Again, it should be in stdlib, but I haven't found it there.
-
-make-≟ : ∀ {a b} {A : Set a} {B : Set b} → 
-         (to : A → B) → (∀ {x y} → to x ≡ to y → x ≡ y) → 
-         Decidable (_≡_ {A = B}) → Decidable (_≡_ {A = A})
-make-≟ to inj _~_ x y with to x ~ to y
-... | yes tox≡toy = yes (inj tox≡toy)
-... | no ¬tox≡toy = no (λ x≡y → ¬tox≡toy (≡-cong to x≡y))
-
-_×-≟_ : ∀ {a b} {A : Set a} {B : Set b} →
-        Decidable (_≡_ {A = A}) → Decidable (_≡_ {A = B}) →
-        Decidable (_≡_ {A = A × B})
-_×-≟_ _~A_  _~B_ (a1 , b1) (a2 , b2) 
-  with a1 ~A a2 | b1 ~B b2
-... | yes a | yes b rewrite a | b = yes ≡-refl
-... | no na | _ = no (λ x → na (≡-cong proj₁ x))
-... | _ | no nb = no (λ x → nb (≡-cong proj₂ x))
-
-≡-head : ∀ {a} {A : Set a} {x1 x2 : A} {xs1 xs2 : List A} →
-         (_≡_ {A = List A} (x1 ∷ xs1) (x2 ∷ xs2)) → x1 ≡ x2
-≡-head ≡-refl = ≡-refl
-
-≡-tail : ∀ {a} {A : Set a} {x1 x2 : A} {xs1 xs2 : List A} →
-         (_≡_ {A = List A} (x1 ∷ xs1) (x2 ∷ xs2)) → xs1 ≡ xs2
-≡-tail ≡-refl = ≡-refl
-
-[]-≟ : ∀ {a} {A : Set a} →
-       Decidable (_≡_ {A = A}) → Decidable (_≡_ {A = List A})
-[]-≟ _~_ [] [] = yes ≡-refl
-[]-≟ _~_ [] (x ∷ xs) = no (λ ())
-[]-≟ _~_ (x ∷ xs) [] = no (λ ())
-[]-≟ {A = A} _~_ (x ∷ xs) (x' ∷ xs') with x ~ x'
-... | no np = no (λ x0 → np (≡-head x0))
-... | yes p rewrite p with []-≟ _~_ xs xs'
-... | yes ps rewrite ps = yes ≡-refl
-... | no nps = no (λ x0 → nps (≡-tail x0))
 
 -- ≡ is decidable for hyperedges
 
@@ -176,18 +141,7 @@ nodes-++ {x ∷ xs} {g2} =
   subst (_∈_ s) (≡-sym (nodes-++ {g1} {g2})) s∈g1g2
 
 
-
 ----------------------------------------------------------------------------------------------------
-
--- I think these should be in the stdlib but I haven't found them.
-
-++→-any : ∀ {a p} {A : Set a} {P : A → Set p} {xs ys} →
-          Any P xs → Any P (xs ++ ys)
-++→-any pxs = Inverse.to ++↔-any ⟨$⟩ (inj₁ pxs)
-
-++→-any₂ : ∀ {a p} {A : Set a} {P : A → Set p} {xs ys} →
-          Any P ys → Any P (xs ++ ys)
-++→-any₂ {xs = xs} {ys = ys} pxs = Inverse.to (++↔-any {xs = xs} {ys = ys}) ⟨$⟩ (inj₂ pxs)
 
 ⊆-++ : {g1 g2 : Hypergraph} → g1 ⊆ (g1 ++ g2)
 ⊆-++ x∈g1 = ++→-any x∈g1
@@ -238,3 +192,13 @@ _−_ : (g1 g2 : Hypergraph) → Hypergraph
 −-++-⊆-inv {g1} {g2} g2⊆g1 h∈++ with Inverse.from (++↔-any {xs = g2} {ys = g1 − g2}) ⟨$⟩ h∈++
 ... | inj₂ h∈g1−g2 = proj₁ (−-∈-inv h∈g1−g2)
 ... | inj₁ h∈g2 = g2⊆g1 h∈g2
+
+----------------------------------------------------------------------------------------------------
+
+-- Useful to prove inclusion of one set of symbols into another.
+
+auto-⊆ : {l1 l2 : List Symb} → {_ : True (⊆-decidable ≡-decidable l1 l2)} → l1 ⊆ l2
+auto-⊆ {l1} {l2} {t} = toWitness t
+
+auto-∈ : {l : List Symb} → {x : Symb} → {_ : True (∈-decidable ≡-decidable x l)} → x ∈ l
+auto-∈ {l} {x} {t} = toWitness t

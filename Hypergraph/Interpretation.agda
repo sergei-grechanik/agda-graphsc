@@ -3,10 +3,14 @@ open import Util
 
 module Hypergraph.Interpretation (symbol : Symbol) (semantics : Semantics) where
 
+open import ListUtil
+
 open import Function
 open import Function.Inverse hiding (_∘_)
 open import Function.Equality hiding (_∘_)
 open import Relation.Binary
+open import Relation.Nullary
+open import Relation.Nullary.Decidable
 open import Data.Product hiding (map)
 open import Data.Maybe using (Maybe; just; nothing; Eq) renaming (setoid to eq-setoid)
 open import Data.Sum renaming ([_,_] to [_,_]-sum)
@@ -16,7 +20,7 @@ open import Data.List.Any using (Any; any; here; there) renaming (map to any-map
 open import Relation.Binary.List.Pointwise using ([]; _∷_) renaming (Rel to RelList)
 open import Data.List.Any.Properties using () renaming (++↔ to ++↔-any)
 
-open Symbol symbol using () renaming (Carrier to Symb)
+open Symbol symbol using (≡-decidable) renaming (Carrier to Symb)
 
 open import Relation.Binary.PropositionalEquality using (trans; _≡_) renaming (setoid to ≡-setoid; refl to ≡-refl)
 open Data.List.Any.Membership-≡ 
@@ -48,16 +52,23 @@ record Interpretation (sig : Sig) : Set where
 
 -- i ⟦ s , s∈sig ⟧ returns the value of s.
 
-_⟦_,_⟧ : {sig : Sig} → Interpretation sig → (s : Symb) → s ∈ sig → Dom
-_⟦_,_⟧ i s s-ok = Interpretation.int i s s-ok
+_⟦_⟧⟨_⟩ : {sig : Sig} → Interpretation sig → (s : Symb) → s ∈ sig → Dom
+_⟦_⟧⟨_⟩ i s s-ok = Interpretation.int i s s-ok
 
-unambiguity : {sig : Sig} → (i : Interpretation sig) → {s : Symb} → {w1 w2 : s ∈ sig} → i ⟦ s , w1 ⟧ ≈ i ⟦ s , w2 ⟧
+-- Same thing, but easy to use (in some contexts) because it decides s ∈ sig by itself.
+
+_⟦_⟧ : {sig : Sig} → Interpretation sig → (s : Symb) → {_ : True (∈-decidable ≡-decidable s sig)} → Dom
+_⟦_⟧ i s {t} = i ⟦ s ⟧⟨ toWitness t ⟩
+
+-- Well, unambiguity.
+
+unambiguity : {sig : Sig} → (i : Interpretation sig) → {s : Symb} → {w1 w2 : s ∈ sig} → i ⟦ s ⟧⟨ w1 ⟩ ≈ i ⟦ s ⟧⟨ w2 ⟩
 unambiguity {sig} i {s} {w1} {w2} = Interpretation.unambiguity i {s} {w1} {w2}
 
 -- intlist returns a list of values for a list of symbols.
 
 intlist : {sig : Sig} → Interpretation sig → (lst : List Symb) → lst ⊆ sig → List Dom
-intlist i lst lst⊆sig = map-with-∈ lst (λ {x} x∈lst → i ⟦ x , (lst⊆sig x∈lst) ⟧)
+intlist i lst lst⊆sig = map-with-∈ lst (λ {x} x∈lst → i ⟦ x ⟧⟨ (lst⊆sig x∈lst) ⟩)
 
 -- intedge returns the interpretation of a hyperedge which is true or false
 -- depending on the values of symbols (generally speaking 
@@ -65,7 +76,7 @@ intlist i lst lst⊆sig = map-with-∈ lst (λ {x} x∈lst → i ⟦ x , (lst⊆
 
 intedge : {sig : Sig} → Interpretation sig → (h : Hyperedge) → source h ∈ sig → dests h ⊆ sig → Set
 intedge i h srcok dstok = 
-  Eq (Setoid._≈_ domain) (just (i ⟦ source h , srcok ⟧)) (⟦ label h ⟧L (intlist i (dests h) dstok))
+  Eq (Setoid._≈_ domain) (just (i ⟦ source h ⟧⟨ srcok ⟩)) (⟦ label h ⟧L (intlist i (dests h) dstok))
 
 
 -- i ⊨[ h ] means that i agrees with the hyperedge h 
@@ -73,7 +84,6 @@ intedge i h srcok dstok =
 
 data _⊨[_] {sig : Sig} (i : Interpretation sig) (h : Hyperedge) : Set where
   yes : (srcok : source h ∈ sig) → (dstok : dests h ⊆ sig) → intedge i h srcok dstok → i ⊨[ h ]
-
 
 -- An interpretation is a model of a hypergraph if it agrees with all its hyperedges.
 -- Written i ⊨ g.
@@ -89,7 +99,7 @@ syntax modelled g i = i ⊨ g
 -- This relation is reflexive, symmetric, but not transitive.
 
 _≍_ : {sig sig' : Sig} → (i : Interpretation sig) → (i' : Interpretation sig') → Set
-_≍_ {sig} {sig'} i i' = (n : Symb) → {n∈sig : n ∈ sig} → {n∈sig' : n ∈ sig'} → i ⟦ n , n∈sig ⟧ ≈ i' ⟦ n , n∈sig' ⟧
+_≍_ {sig} {sig'} i i' = (n : Symb) → {n∈sig : n ∈ sig} → {n∈sig' : n ∈ sig'} → i ⟦ n ⟧⟨ n∈sig ⟩ ≈ i' ⟦ n ⟧⟨ n∈sig' ⟩
 
 ≍-refl : {sig : Sig} → Reflexive (_≍_ {sig} {sig})
 ≍-refl {sig} {i} n = unambiguity i
@@ -108,7 +118,7 @@ _≍_ {sig} {sig'} i i' = (n : Symb) → {n∈sig : n ∈ sig} → {n∈sig' : n
   where
     open Setoid (eq-setoid domain) using () renaming (sym to eq-sym; trans to eq-trans)
 
-    intseq : Eq _≈_ (just (i ⟦ src , srcok ⟧)) (just (i' ⟦ src , srcok' ⟧))
+    intseq : Eq _≈_ (just (i ⟦ src ⟧⟨ srcok ⟩)) (just (i' ⟦ src ⟧⟨ srcok' ⟩))
     intseq = just (i≍i' src)
 
     listeq : {ds : List Symb} → {dsok : ds ⊆ sig} → {dsok' : ds ⊆ sig'} → 
@@ -128,12 +138,29 @@ _≍_ {sig} {sig'} i i' = (n : Symb) → {n∈sig : n ∈ sig} → {n∈sig' : n
   yes (h⊆sig' (here ≡-refl)) (λ d∈ds → h⊆sig' (there d∈ds)) 
       (≍-intedge {i = i} {i' = i'} i≍i' {src ▷ l ▷ ds} y)
 
+-- Get a witness of equality from the fact that h agrees with i. 
+-- Since witnesses of source and dests being in the signature 
+-- may be different, we should perform some transformations.
+-- We define this function here because we need the lemma above. 
+--
+-- Usage: drop-just (to-eq (...))
+
+to-eq : {sig : Sig} → {i : Interpretation sig} → {h : Hyperedge} →
+        {t-src : True (∈-decidable ≡-decidable (source h) sig)} →
+        {t-dst : True (⊆-decidable ≡-decidable (dests h) sig)} →
+        (i⊨h : i ⊨[ h ]) → 
+        Eq (Setoid._≈_ domain) 
+          (just (i ⟦ source h ⟧⟨ toWitness t-src ⟩))
+          (⟦ label h ⟧L (intlist i (dests h) (toWitness t-dst)))
+to-eq {sig = sig} {i = i} {h = h} {t-src = t-src} {t-dst = t-dst} (yes srcok dsok p) = 
+  ≍-intedge {i = i} {i' = i} (≍-refl {sig} {i}) {h = h} {srcok = srcok} {dsok = dsok} p
+
 -- We can restrict an interpretation to a subsignature.
 
 restrict : {sig sig' : Sig} → sig' ⊆ sig → Interpretation sig → Interpretation sig'
 restrict sub i =
   record {
-    int = λ s sok → i ⟦ s , sub sok ⟧;
+    int = λ s sok → i ⟦ s ⟧⟨ sub sok ⟩;
     unambiguity = unambiguity i
   }
 
@@ -252,7 +279,7 @@ join-int {g1} {g2} {i1} {i2} i1⊨g1 i2⊨g2 i1≍i2 =
     int s s∈gs = f (Inverse.from ++↔-any ⟨$⟩ ∈-nodes-++ {g1} {g2} s∈gs)
       where
         f : (s ∈ nodes g1) ⊎ (s ∈ nodes g2) → Dom
-        f = [ _⟦_,_⟧ i1 s , _⟦_,_⟧ i2 s ]-sum
+        f = [ _⟦_⟧⟨_⟩ i1 s , _⟦_⟧⟨_⟩ i2 s ]-sum
 
     unamb : {s : Symb} → {w1 w2 : s ∈ nodes (g1 ++ g2)} → int s w1 ≈ int s w2
     unamb {s} {w1} {w2}

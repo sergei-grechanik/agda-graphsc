@@ -3,6 +3,8 @@ open import Util
 
 module Hypergraph.Transformation (symbol : Symbol) (semantics : Semantics) where
 
+open import ListUtil
+
 open import Function
 open import Function.Inverse hiding (_∘_; map)
 open import Function.Equality hiding (_∘_)
@@ -27,85 +29,10 @@ open Data.List.Any.Membership-≡
 open Semantics semantics
 open Setoid domain using (_≈_; refl) renaming (Carrier to Dom; sym to ≈-sym; trans to ≈-trans) 
 
-
 import Hypergraph.Core
 import Hypergraph.Interpretation
 open Hypergraph.Core symbol semantics
 open Hypergraph.Interpretation symbol semantics
-
-open import Level
-
--- Finite binary relations. 
--- I hadn't found them in stdlib, so I had to implement them myself.
-
-FinRel : ∀ {a b} (A : Set a) (B : Set b) → Set (a ⊔ b)
-FinRel A B = List (A × B)
-
-⟪_⟫ : ∀ {a b} {A : Set a} {B : Set b} → FinRel A B → A → B → Set (a ⊔ b)
-⟪ f ⟫ x y = (x , y) ∈ f
-
-functional : ∀ {a b} {A : Set a} {B : Set b} → FinRel A B → Set (a ⊔ b)
-functional {A = A} {B = B} table = 
-  (key : A) → (p1 p2 : A × B) → p1 ∈ table → p2 ∈ table → proj₂ p1 ≡ proj₂ p2
-
-keys : ∀ {a b} {A : Set a} {B : Set b} → 
-       FinRel A B → List A
-keys table = Data.List.map proj₁ table
-
-values : ∀ {a b} {A : Set a} {B : Set b} → 
-         FinRel A B → List B
-values table = Data.List.map proj₂ table
-
--- f has x means that there is y such that f relates x to y.
-
-_has_ : ∀ {a b} {A : Set a} {B : Set b} → 
-        FinRel A B → A → Set (a ⊔ b)
-f has x = ∃ λ y → ⟪ f ⟫ x y
-
--- actually "f has x" is the same thing as x ∈ keys f
-
-has→∈keys : ∀ {a b} {A : Set a} {B : Set b} {f : FinRel A B} {x : A} →
-            f has x → x ∈ keys f
-has→∈keys (y , here px) rewrite (≡-sym px) = here ≡-refl
-has→∈keys (y , there pxs) with has→∈keys (y , pxs)
-... | ∈keys-xs = there ∈keys-xs
-
--- If ≡ for A is decidable then _has_ is decidable.
-
-has-decidable : ∀ {a b} {A : Set a} {B : Set b} → 
-                Decidable (_≡_ {A = A}) → Decidable {A = FinRel A B} {B = A} _has_
-has-decidable {B = B} dec [] x = no fun
-  where
-    fun : Σ B (λ y → Any (_≡_ (x , y)) []) → Data.Empty.⊥
-    fun (_ , ())
-has-decidable {B = B} dec ((x , y) ∷ ps) x' with dec x x'
-... | yes x≡x' rewrite x≡x' =  yes (y , here ≡-refl)
-... | no x≢x' with has-decidable dec ps x'
-... | yes (y' , ps-x'-y') = yes (y' , there ps-x'-y')
-... | no ¬ps-has-x' = no fun
-  where
-    fun : Σ B (λ y' → Any (_≡_ (x' , y')) ((x , y) ∷ ps)) → Data.Empty.⊥
-    fun (y' , here px) rewrite px = x≢x' (≡-cong proj₁ (≡-sym px))
-    fun (y' , there pxs) = ¬ps-has-x' (y' , pxs)
-
--- Given key ∈ keys, returns a corresponding value.
--- (One of them, there may be multiple corresponding to the same key)
-
-at' : ∀ {a b} {A : Set a} {B : Set b} → 
-     (table : FinRel A B) → {key : A} → (key ∈ keys table) → B
-at' [] ()
-at' (x ∷ xs) (here px) = proj₂ x
-at' (x ∷ xs) (there pxs) = at' xs pxs
-
--- Finds a corresponding value given the decidability of ≡.
-
-at : ∀ {a b} {A : Set a} {B : Set b} → Decidable (_≡_ {A = A}) →
-     (table : FinRel A B) → A → Maybe B
-at dec table x with has-decidable dec table x
-... | yes (y , _) = just y
-... | no _ = nothing
-
-
 
 
 -- Apply a renaming θ to the nodes of g.
@@ -175,6 +102,12 @@ rename-⇛ {g1} {g2} {θ} {forb} g1⊆θ reng1⊆forb g1⇛g2 i i⊨reng1 =
   {!!} , 
   {!!} , 
   {!!}
+  where
+    θi : Interpretation (nodes g1)
+    θi = record {
+           int = λ s s∈g1 → Interpretation.int i (at' θ (g1⊆θ s∈g1)) {!!};
+           unambiguity = {!!}
+         }
 
 -- Replace a subgraph of g equivalent to g1 with g2.
 
