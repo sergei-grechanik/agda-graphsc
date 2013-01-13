@@ -12,7 +12,8 @@ open import Relation.Binary
 open import Relation.Nullary
 open import Relation.Nullary.Decidable
 open import Data.Product hiding (map)
-open import Data.Maybe using (Maybe; just; nothing; Eq) renaming (setoid to eq-setoid)
+open import Data.Maybe using (Maybe; just; nothing; Eq; maybeToBool) renaming (setoid to eq-setoid)
+open import Data.Bool using (T)
 open import Data.Sum renaming ([_,_] to [_,_]-sum)
 open import Data.List hiding (any)
 open import Data.List.All hiding (map)
@@ -22,7 +23,8 @@ open import Data.List.Any.Properties using () renaming (++↔ to ++↔-any)
 
 open Symbol symbol using (≡-decidable) renaming (Carrier to Symb)
 
-open import Relation.Binary.PropositionalEquality using (trans; _≡_) renaming (setoid to ≡-setoid; refl to ≡-refl)
+open import Relation.Binary.PropositionalEquality using (trans; _≡_; subst) 
+  renaming (setoid to ≡-setoid; refl to ≡-refl; cong to ≡-cong; sym to ≡-sym)
 open Data.List.Any.Membership-≡ 
 
 open Semantics semantics
@@ -65,6 +67,14 @@ _⟦_⟧ i s {t} = i ⟦ s ⟧⟨ toWitness t ⟩
 unambiguity : {sig : Sig} → (i : Interpretation sig) → {s : Symb} → {w1 w2 : s ∈ sig} → i ⟦ s ⟧⟨ w1 ⟩ ≈ i ⟦ s ⟧⟨ w2 ⟩
 unambiguity {sig} i {s} {w1} {w2} = Interpretation.unambiguity i {s} {w1} {w2}
 
+-- Sometimes this version is more convenient.
+
+unambiguity' : {sig : Sig} → (i : Interpretation sig) → 
+              {s1 s2 : Symb} → {w1 : s1 ∈ sig} {w2 : s2 ∈ sig} → 
+              s1 ≡ s2 → i ⟦ s1 ⟧⟨ w1 ⟩ ≈ i ⟦ s2 ⟧⟨ w2 ⟩
+unambiguity' {sig} i {s} {.s} {w1} {w2} ≡-refl = 
+  Interpretation.unambiguity i {s} {w1} {w2}
+
 -- intlist returns a list of values for a list of symbols.
 
 intlist : {sig : Sig} → Interpretation sig → (lst : List Symb) → lst ⊆ sig → List Dom
@@ -84,6 +94,25 @@ intedge i h srcok dstok =
 
 data _⊨[_] {sig : Sig} (i : Interpretation sig) (h : Hyperedge) : Set where
   yes : (srcok : source h ∈ sig) → (dstok : dests h ⊆ sig) → intedge i h srcok dstok → i ⊨[ h ]
+
+-- Construct i ⊨[ h ], automatically deciding
+-- some obvious statements.
+
+auto-⊨[] : {sig : Sig} {i : Interpretation sig} {h : Hyperedge}
+           {t-src : True (∈-decidable ≡-decidable (source h) sig)}
+           {t-dst : True (⊆-decidable ≡-decidable (dests h) sig)} 
+           {t-just : T (maybeToBool ((⟦ label h ⟧L (intlist i (dests h) (toWitness t-dst)))))} →
+           (Setoid._≈_ domain) 
+             (i ⟦ source h ⟧⟨ toWitness t-src ⟩) 
+             (unjust (⟦ label h ⟧L (intlist i (dests h) (toWitness t-dst))) {t-just}) →
+           i ⊨[ h ]
+auto-⊨[] {i = i} {h = h} {t-src = t-src} {t-dst = t-dst} {t-just = t-just} eq  = 
+  yes (toWitness t-src) (toWitness t-dst) 
+      (subst (Eq (Setoid._≈_ domain) (just (i ⟦ source h ⟧⟨ toWitness t-src ⟩))) ju (just eq))
+  where
+    ju : just (unjust (⟦ label h ⟧L (intlist i (dests h) (toWitness t-dst))) {t-just}) ≡ 
+                      (⟦ label h ⟧L (intlist i (dests h) (toWitness t-dst)))
+    ju = just-unjust 
 
 -- An interpretation is a model of a hypergraph if it agrees with all its hyperedges.
 -- Written i ⊨ g.

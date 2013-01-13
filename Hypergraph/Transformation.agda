@@ -22,7 +22,7 @@ open import Data.List.Any.Properties using () renaming (++↔ to ++↔-any)
 
 open Symbol symbol using (fresh; ≡-decidable) renaming (Carrier to Symb)
 
-open import Relation.Binary.PropositionalEquality using (trans; _≡_) renaming 
+open import Relation.Binary.PropositionalEquality using (trans; _≡_; inspect; subst) renaming 
   (setoid to ≡-setoid; refl to ≡-refl; cong to ≡-cong; sym to ≡-sym)
 open Data.List.Any.Membership-≡ 
 
@@ -35,15 +35,66 @@ open Hypergraph.Core symbol semantics
 open Hypergraph.Interpretation symbol semantics
 
 
+-- Apply a renaming θ to the nodes of a hyperedge h.
+
+edge-rename : (h : Hyperedge) → (θ : FinRel Symb Symb) → edge-nodes h ⊆ keys θ → Hyperedge
+edge-rename (src ▷ l ▷ ds) θ n⊆k =  
+      at' θ (n⊆k (here ≡-refl)) ▷ l ▷ map-with-∈ ds (λ ∈ds → at' θ (n⊆k (there ∈ds)))
+
 -- Apply a renaming θ to the nodes of g.
 
 rename : (g : Hypergraph) → (θ : FinRel Symb Symb) → nodes g ⊆ keys θ → Hypergraph
-rename g θ n⊆k = map edge-ren (edges-with-∈ g)
+rename g θ g∈θ = map-with-∈ g edge-ren
   where
-    edge-ren : (∃ λ h → edge-nodes h ⊆ nodes g) → Hyperedge
-    edge-ren (src ▷ l ▷ ds , h⊆g) = 
-      at' θ (n⊆k (h⊆g (here ≡-refl))) ▷ l ▷ map-with-∈ ds (λ ∈ds → at' θ (n⊆k (h⊆g (there ∈ds))))
+    edge-ren : {h : Hyperedge} → h ∈ g → Hyperedge
+    edge-ren {h} h∈g = edge-rename h θ (g∈θ ∘ edge-nodes-⊆ h∈g)
 
+-- If a symbols is in (edge-nodes h) then its image is in (edge-nodes (edge-rename h ...)).
+
+edge-rename-nodes-lemma : 
+  {h : Hyperedge} → {θ : FinRel Symb Symb} → {h⊆θ : edge-nodes h ⊆ keys θ} → {s : Symb} →
+  (s∈h : s ∈ edge-nodes h) → at' θ (h⊆θ s∈h) ∈ edge-nodes (edge-rename h θ h⊆θ)
+edge-rename-nodes-lemma {Hypergraph.Core._▷_▷_ src l ds} (here ≡-refl) = here ≡-refl
+edge-rename-nodes-lemma {Hypergraph.Core._▷_▷_ src l ds} {θ} {h⊆θ} {s} (there pxs) = 
+  there (go ds (h⊆θ ∘ there) pxs)
+  where
+    go : (ds' : List Symb) → (sub : ds' ⊆ keys θ) → (s∈ds' : s ∈ ds') → 
+         at' θ (sub s∈ds') ∈ map-with-∈ ds' (λ ∈ds → at' θ (sub ∈ds))
+    go [] sub ()
+    go (.s ∷ xs) sub (here ≡-refl) = here ≡-refl
+    go (x ∷ xs) sub (there pxs') = there (go xs (sub ∘ there) pxs')
+
+-- If a hyperedge is in g then its image is in (rename g ...).
+
+rename-edges-lemma : {g : Hypergraph} → {θ : FinRel Symb Symb} → {g⊆θ : nodes g ⊆ keys θ} → 
+                     {h : Hyperedge} → (h∈g : h ∈ g) → 
+                     edge-rename h θ (g⊆θ ∘ edge-nodes-⊆ h∈g) ∈ rename g θ g⊆θ
+rename-edges-lemma {[]} ()
+rename-edges-lemma {x ∷ xs} (here ≡-refl) = here ≡-refl
+rename-edges-lemma {x ∷ xs} {θ} {g⊆θ} (there pxs) =
+  there (rename-edges-lemma {xs} {θ} {g⊆θ ∘ (++→-any₂ {xs = edge-nodes x} )} pxs)
+
+-- If a symbol is in (nodes g) then its image is in (nodes (rename g ...)).
+-- We require θ to be functional because it is much more difficult
+-- to prove this lemma otherwise.
+
+rename-nodes-lemma : {g : Hypergraph} → {θ : FinRel Symb Symb} → {g⊆θ : nodes g ⊆ keys θ} → 
+                     (fun : functional θ) → {s : Symb}
+                     (s∈g : s ∈ nodes g) → at' θ (g⊆θ s∈g) ∈ nodes (rename g θ g⊆θ)
+rename-nodes-lemma {g} {θ} {g⊆θ} fun {s} s∈g 
+  with find (lookup (∈-nodes-lemma {g}) s∈g)
+... | (h , h∈g , s∈h) = 
+         subst (λ x → x ∈ nodes (rename g θ g⊆θ)) eq 
+               (∈-nodes-lemma-inv (lose h'∈g' (edge-rename-nodes-lemma s∈h)))
+  where
+    eq : at' θ (g⊆θ (edge-nodes-⊆ h∈g s∈h)) ≡ at' θ (g⊆θ s∈g)
+    eq = at'-functional fun _ _
+    h'∈g' : edge-rename h θ (g⊆θ ∘ edge-nodes-⊆ h∈g) ∈ rename g θ g⊆θ
+    h'∈g' = rename-edges-lemma {g} {θ} {g⊆θ} h∈g
+    
+
+
+----------------------------------------------------------------------------------------------------
 
 -- This function takes a list of symbols and creates a renaming which maps
 -- each symbol from the list into a corresponding symbol from θ or
@@ -96,18 +147,31 @@ rename-or-fresh forbidden θ g =
 -- The effect of renaming on ⇛.
 
 rename-⇛ : {g1 g2 : Hypergraph} → {θ : FinRel Symb Symb} → {forbidden : List Symb} →
-           (g1⊆θ : nodes g1 ⊆ keys θ) → nodes (rename g1 θ g1⊆θ) ⊆ forbidden →
-           g1 ⇛ g2 → rename g1 θ g1⊆θ ⇛ rename-or-fresh forbidden θ g2
-rename-⇛ {g1} {g2} {θ} {forb} g1⊆θ reng1⊆forb g1⇛g2 i i⊨reng1 = 
+           (fun : functional θ) → (g1⊆θ : nodes g1 ⊆ keys θ) → 
+           nodes (rename g1 θ g1⊆θ) ⊆ forbidden → g1 ⇛ g2 → 
+           rename g1 θ g1⊆θ ⇛ rename-or-fresh forbidden θ g2
+rename-⇛ {g1} {g2} {θ} {forb} fun g1⊆θ reng1⊆forb g1⇛g2 i i⊨reng1 = 
   {!!} , 
   {!!} , 
   {!!}
   where
+    unamb : {s : Symb} {w1 w2 : s ∈ nodes g1} → 
+            (Interpretation.int i (at' θ (g1⊆θ w1)) (rename-nodes-lemma {g = g1} {g⊆θ = g1⊆θ} fun w1)) ≈
+            (Interpretation.int i (at' θ (g1⊆θ w2)) (rename-nodes-lemma {g = g1} {g⊆θ = g1⊆θ} fun w2))
+    unamb {s} {w1} {w2} = 
+      unambiguity' i (at'-functional fun (g1⊆θ w1) (g1⊆θ w2))
+
     θi : Interpretation (nodes g1)
     θi = record {
-           int = λ s s∈g1 → Interpretation.int i (at' θ (g1⊆θ s∈g1)) {!!};
-           unambiguity = {!!}
+           int = λ s s∈g1 → 
+             Interpretation.int i (at' θ (g1⊆θ s∈g1)) 
+                                  (rename-nodes-lemma {g = g1} {g⊆θ = g1⊆θ} fun s∈g1);
+           unambiguity = unamb
          }
+
+    θi⊨g1 : θi ⊨ g1
+    θi⊨g1 = tabulate (λ x∈g1 → {!!})
+    
 
 -- Replace a subgraph of g equivalent to g1 with g2.
 

@@ -8,6 +8,7 @@ open import Function.Equality
 open import Relation.Nullary
 open import Relation.Binary
 open import Data.Empty
+open import Data.Bool
 open import Data.Product hiding (map)
 open import Data.Sum
 open import Data.List hiding (any)
@@ -15,7 +16,7 @@ open import Data.List.All hiding (map)
 open import Data.List.All.Properties
 open import Data.List.Any using (Any; any; here; there) renaming (map to any-map)
 open import Data.List.Any.Properties using () renaming (++↔ to ++↔-any)
-open import Data.Maybe using (Maybe; just; nothing; Eq) renaming (setoid to eq-setoid)
+open import Data.Maybe using (Maybe; just; nothing; Eq; maybeToBool) renaming (setoid to eq-setoid)
 
 open import Relation.Binary.PropositionalEquality using (_≡_; subst) 
   renaming (setoid to ≡-setoid; refl to ≡-refl; sym to ≡-sym; trans to ≡-trans; cong to ≡-cong)
@@ -59,6 +60,13 @@ has→∈keys (y , here px) rewrite (≡-sym px) = here ≡-refl
 has→∈keys (y , there pxs) with has→∈keys (y , pxs)
 ... | ∈keys-xs = there ∈keys-xs
 
+∈keys→has : ∀ {a b} {A : Set a} {B : Set b} {f : FinRel A B} {x : A} →
+            x ∈ keys f → f has x
+∈keys→has {a} {b} {A} {B} {[]} ()
+∈keys→has {a} {b} {A} {B} {(proj₁ , proj₂) ∷ xs} (here ≡-refl) = proj₂ , here ≡-refl
+∈keys→has {a} {b} {A} {B} {x ∷ xs} (there pxs) with ∈keys→has pxs
+... | y , p = y , there p
+
 -- If ≡ for A is decidable then _has_ is decidable.
 
 has-decidable : ∀ {a b} {A : Set a} {B : Set b} → 
@@ -82,9 +90,7 @@ has-decidable {B = B} dec ((x , y) ∷ ps) x' with dec x x'
 
 at' : ∀ {a b} {A : Set a} {B : Set b} → 
      (table : FinRel A B) → {key : A} → (key ∈ keys table) → B
-at' [] ()
-at' (x ∷ xs) (here px) = proj₂ x
-at' (x ∷ xs) (there pxs) = at' xs pxs
+at' f k∈f = proj₁ (∈keys→has k∈f)
 
 -- Finds a corresponding value given the decidability of ≡.
 
@@ -93,6 +99,26 @@ at : ∀ {a b} {A : Set a} {B : Set b} → Decidable (_≡_ {A = A}) →
 at dec table x with has-decidable dec table x
 ... | yes (y , _) = just y
 ... | no _ = nothing
+
+-- at' returns a value from values.
+
+at'-∈values : ∀ {a b} {A : Set a} {B : Set b}
+              (table : FinRel A B) {key : A} (key∈keys : key ∈ keys table) →
+              at' table key∈keys ∈ values table
+at'-∈values [] ()
+at'-∈values (x ∷ xs) (here ≡-refl) = here ≡-refl
+at'-∈values (x ∷ xs) (there pxs) = there (at'-∈values xs pxs)
+
+-- If the relation is functional, at' is unambiguous.
+
+at'-functional : 
+  ∀ {a b} {A : Set a} {B : Set b}
+    {table : FinRel A B} (fun : functional table) 
+    {key : A} (key∈keys1 key∈keys2 : key ∈ keys table) →
+    at' table key∈keys1 ≡ at' table key∈keys2
+at'-functional {table = table} fun {key} key∈keys1 key∈keys2
+  with ∈keys→has key∈keys1 | ∈keys→has key∈keys2
+... | y1 , p∈1 | y2 , p∈2 = fun (key , y1) (key , y2) p∈1 p∈2 ≡-refl
 
 ----------------------------------------------------------------------------------------------------
 
@@ -165,3 +191,20 @@ _×-≟_ _~A_  _~B_ (a1 , b1) (a2 , b2)
 ... | yes p rewrite p with []-≟ _~_ xs xs'
 ... | yes ps rewrite ps = yes ≡-refl
 ... | no nps = no (λ x0 → nps (≡-tail x0))
+
+
+----------------------------------------------------------------------------------------------------
+
+-- If we have a witness that x is just,
+-- we can remove this just.
+
+unjust : ∀ {a} {A : Set a} (x : Maybe A) 
+         {t-just : T (maybeToBool x)} → A
+unjust (just x) = x
+unjust nothing {t-just} = ⊥-elim t-just
+
+just-unjust : ∀ {a} {A : Set a} {x : Maybe A}
+              {t-just : T (maybeToBool x)} → 
+              just (unjust x {t-just}) ≡ x
+just-unjust {a} {A} {just x} = ≡-refl
+just-unjust {a} {A} {nothing} {t-just} = ⊥-elim t-just
