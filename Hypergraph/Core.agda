@@ -45,7 +45,7 @@ label : Hyperedge → Label
 label (s ▷ l ▷ ds) = l
 
 edge-nodes : Hyperedge → List Symb
-edge-nodes (source ▷ _ ▷ dests) = source ∷ dests
+edge-nodes h = source h ∷ dests h
 
 -- ≡ is decidable for hyperedges
 
@@ -59,6 +59,9 @@ hyperedge-≡-decidable : Decidable (_≡_ {A = Hyperedge})
 hyperedge-≡-decidable = 
   make-≟ hyperedge2tuple hyperedge2tuple-inj 
          (≡-decidable ×-≟ (label-≡-decidable ×-≟ []-≟ ≡-decidable))
+
+hyperedge-∈-decidable : Decidable (_∈_ {A = Hyperedge})
+hyperedge-∈-decidable = ∈-decidable hyperedge-≡-decidable
 
 -- A hypergraph is a list of hyperedges.
 
@@ -202,3 +205,17 @@ auto-⊆ {l1} {l2} {t} = toWitness t
 
 auto-∈ : {l : List Symb} → {x : Symb} → {_ : True (∈-decidable ≡-decidable x l)} → x ∈ l
 auto-∈ {l} {x} {t} = toWitness t
+
+----------------------------------------------------------------------------------------------------
+
+-- Normalize witnesses of ∈ and ⊆.
+
+norm-∈ : {l : List Symb} → {s : Symb} → s ∈ l → s ∈ l
+norm-∈ {l} {s} s∈l with ∈-decidable ≡-decidable s l
+... | yes w = w
+... | no nw = ⊥-elim (nw s∈l)
+
+norm-⊆ : {l1 l2 : List Symb} → l1 ⊆ l2 → l1 ⊆ l2
+norm-⊆ {l1} {l2} l1⊆l2 with ⊆-decidable ≡-decidable l1 l2
+... | yes w = w
+... | no nw = ⊥-elim (nw l1⊆l2)

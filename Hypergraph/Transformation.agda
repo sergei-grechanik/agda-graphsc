@@ -10,6 +10,7 @@ open import Function.Inverse hiding (_∘_; map)
 open import Function.Equality hiding (_∘_)
 open import Relation.Nullary
 open import Relation.Binary
+import Relation.Binary.EqReasoning
 import Data.Empty
 open import Data.Product hiding (map)
 open import Data.Maybe using (Maybe; just; nothing; Eq) renaming (setoid to eq-setoid)
@@ -38,16 +39,16 @@ open Hypergraph.Interpretation symbol semantics
 -- Apply a renaming θ to the nodes of a hyperedge h.
 
 edge-rename : (h : Hyperedge) → (θ : FinRel Symb Symb) → edge-nodes h ⊆ keys θ → Hyperedge
-edge-rename (src ▷ l ▷ ds) θ n⊆k =  
-      at' θ (n⊆k (here ≡-refl)) ▷ l ▷ map-with-∈ ds (λ ∈ds → at' θ (n⊆k (there ∈ds)))
+edge-rename h θ n⊆k =  
+      at' θ (n⊆k (here ≡-refl)) ▷ label h ▷ list-at' θ (dests h) (n⊆k ∘ there)
 
 -- Apply a renaming θ to the nodes of g.
 
 rename : (g : Hypergraph) → (θ : FinRel Symb Symb) → nodes g ⊆ keys θ → Hypergraph
-rename g θ g∈θ = map-with-∈ g edge-ren
+rename g θ g⊆θ = map-with-∈ g edge-ren
   where
     edge-ren : {h : Hyperedge} → h ∈ g → Hyperedge
-    edge-ren {h} h∈g = edge-rename h θ (g∈θ ∘ edge-nodes-⊆ h∈g)
+    edge-ren {h} h∈g = edge-rename h θ (g⊆θ ∘ edge-nodes-⊆ h∈g)
 
 -- If a symbols is in (edge-nodes h) then its image is in (edge-nodes (edge-rename h ...)).
 
@@ -85,7 +86,7 @@ rename-nodes-lemma {g} {θ} {g⊆θ} fun {s} s∈g
   with find (lookup (∈-nodes-lemma {g}) s∈g)
 ... | (h , h∈g , s∈h) = 
          subst (λ x → x ∈ nodes (rename g θ g⊆θ)) eq 
-               (∈-nodes-lemma-inv (lose h'∈g' (edge-rename-nodes-lemma s∈h)))
+               (∈-nodes-lemma-inv (lose h'∈g' (edge-rename-nodes-lemma {h} {θ} {g⊆θ ∘ edge-nodes-⊆ h∈g} s∈h)))
   where
     eq : at' θ (g⊆θ (edge-nodes-⊆ h∈g s∈h)) ≡ at' θ (g⊆θ s∈g)
     eq = at'-functional fun _ _
@@ -168,10 +169,43 @@ rename-⇛ {g1} {g2} {θ} {forb} fun g1⊆θ reng1⊆forb g1⇛g2 i i⊨reng1 =
                                   (rename-nodes-lemma {g = g1} {g⊆θ = g1⊆θ} fun s∈g1);
            unambiguity = unamb
          }
+    
+    θi⊨g1-untab : {h : Hyperedge} → h ∈ g1 → θi ⊨[ h ]
+    θi⊨g1-untab {h} h∈g1 = yes _ _
+      (begin
+        just (θi ⟦ source h ⟧⟨ (edge-nodes-⊆ h∈g1 (here ≡-refl)) ⟩)
+      ≡⟨ ≡-refl ⟩
+        just (i ⟦ at' θ _ ⟧⟨ _ ⟩)
+      ≈⟨ just (unambiguity i) ⟩
+        just (i ⟦ at' θ _ ⟧⟨ _ ⟩)
+      ≈⟨ get-intedge (lookup i⊨reng1 (rename-edges-lemma {g⊆θ = g1⊆θ} h∈g1)) ⟩
+        ⟦ label h ⟧L (intlist i (list-at' θ (dests h) ((g1⊆θ ∘ edge-nodes-⊆ h∈g1) ∘ there)) _)
+      ≈⟨ respect (intlist-unamb i _ _) ⟩
+        ⟦ label h ⟧L (intlist i (list-at' θ (dests h) ((g1⊆θ ∘ edge-nodes-⊆ h∈g1) ∘ there)) _)
+      ≡⟨ ≡-cong (λ x → ⟦ label h ⟧L (intlist i x _)) (list-at'-functional fun _ _) ⟩
+        ⟦ label h ⟧L (intlist i (list-at' θ (dests h) _) (get-dstok (lookup i⊨reng1 (rename-edges-lemma {g⊆θ = g1⊆θ} h∈g1))))
+      ≡⟨ ≡-refl ⟩
+        ⟦ label h ⟧L (map-with-∈ (list-at' θ (dests h) _) (λ {x} x∈lst → i ⟦ _ ⟧⟨ _ ⟩))
+      ≡⟨ ≡-cong (λ x → ⟦ label h ⟧L x) (map-with-∈-list-at' θ (dests h) _) ⟩
+        ⟦ label h ⟧L (map-with-∈ (dests h) (λ {x} x∈lst → i ⟦ _ ⟧⟨ _ ⟩))
+      ≡⟨ ≡-refl ⟩
+        {!!} --⟦ label h ⟧L (intlist θi (dests h) _)
+      ≈⟨ {!!} ⟩
+        ⟦ label h ⟧L (map-with-∈ (dests h) (λ {x} x∈lst → i ⟦ at' θ (g1⊆θ ((edge-nodes-⊆ h∈g1 ∘ there) x∈lst)) ⟧⟨ rename-nodes-lemma {g = g1} {g⊆θ = g1⊆θ} fun ((edge-nodes-⊆ h∈g1 ∘ there) x∈lst) ⟩))
+      ≡⟨ ≡-refl ⟩
+        ⟦ label h ⟧L (map-with-∈ (dests h) (λ {x} x∈lst → θi ⟦ x ⟧⟨ ((edge-nodes-⊆ h∈g1 ∘ there)) x∈lst ⟩))
+      ≡⟨ ≡-refl ⟩
+        ⟦ label h ⟧L (intlist θi (dests h) (edge-nodes-⊆ h∈g1 ∘ there))
+      ∎)
+      where
+        open Relation.Binary.EqReasoning (Data.Maybe.setoid domain)
+        i⊨renh : i ⊨[ edge-rename h θ (g1⊆θ ∘ edge-nodes-⊆ h∈g1) ]
+        i⊨renh = lookup i⊨reng1 (rename-edges-lemma {g⊆θ = g1⊆θ} h∈g1)
+    --yes (edge-nodes-⊆ h∈g1 (here ≡-refl)) (edge-nodes-⊆ h∈g1 ∘ there)  
 
     θi⊨g1 : θi ⊨ g1
-    θi⊨g1 = tabulate (λ x∈g1 → {!!})
-    
+    θi⊨g1 = tabulate θi⊨g1-untab 
+
 
 -- Replace a subgraph of g equivalent to g1 with g2.
 

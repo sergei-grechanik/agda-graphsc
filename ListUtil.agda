@@ -3,8 +3,8 @@ module ListUtil where
 
 open import Level
 open import Function
-open import Function.Inverse
-open import Function.Equality
+open import Function.Inverse hiding (_∘_)
+open import Function.Equality hiding (_∘_)
 open import Relation.Nullary
 open import Relation.Binary
 open import Data.Empty
@@ -119,6 +119,48 @@ at'-functional :
 at'-functional {table = table} fun {key} key∈keys1 key∈keys2
   with ∈keys→has key∈keys1 | ∈keys→has key∈keys2
 ... | y1 , p∈1 | y2 , p∈2 = fun (key , y1) (key , y2) p∈1 p∈2 ≡-refl
+
+----------------------------------------------------------------------------------------------------
+
+-- Apply a finite function to a list.
+
+list-at' : ∀ {a b} {A : Set a} {B : Set b} → 
+           (table : FinRel A B) → (lst : List A) → (lst ⊆ keys table) → List B
+list-at' table lst l⊆k = map-with-∈ lst (λ x∈l → at' table (l⊆k x∈l))
+
+-- If the relation is functional, list-at' is unambiguous.
+
+list-at'-functional : 
+  ∀ {a b} {A : Set a} {B : Set b}
+    {table : FinRel A B} (fun : functional table) 
+    {lst : List A} (l⊆k1 l⊆k2 : lst ⊆ keys table) →
+    list-at' table lst l⊆k1 ≡ list-at' table lst l⊆k2
+list-at'-functional fun {[]} l⊆k1 l⊆k2 = ≡-refl
+list-at'-functional fun {x ∷ xs} l⊆k1 l⊆k2 
+  rewrite at'-functional fun (l⊆k1 (here ≡-refl)) (l⊆k2 (here ≡-refl)) | 
+          list-at'-functional fun (l⊆k1 ∘ there) (l⊆k2 ∘ there)
+  = ≡-refl
+ 
+-- A lemma about map-with-∈ and membership.
+
+map-with-∈-∈ : ∀ {a b} {A : Set a} {B : Set b}
+               {xs : List A} → {f : ∀ {x} → x ∈ xs → B} →
+               {x : A} → (x∈xs : x ∈ xs) → f x∈xs ∈ map-with-∈ xs f
+map-with-∈-∈ (here ≡-refl) = here ≡-refl
+map-with-∈-∈ {xs = x ∷ xs} (there pxs) = there (map-with-∈-∈ {xs = xs} pxs)
+
+-- map-with-∈ and list-at' interact in some way.
+
+map-with-∈-list-at' : 
+  ∀ {a b c} {A : Set a} {B : Set b} {C : Set c} →
+  (table : FinRel A B) → (lst : List A) → (l⊆k : lst ⊆ keys table) → 
+  {f : {x : B} → x ∈ (list-at' table lst l⊆k) → C} →
+  map-with-∈ (list-at' table lst l⊆k) f ≡ 
+    map-with-∈ lst (λ {x : A} x∈l → f {at' table (l⊆k x∈l)} (map-with-∈-∈ x∈l)  )
+map-with-∈-list-at' table [] l⊆k = ≡-refl
+map-with-∈-list-at' table (x ∷ xs) l⊆k {f} 
+  rewrite map-with-∈-list-at' table xs (l⊆k ∘ there) {f = f ∘ there}
+  = ≡-refl
 
 ----------------------------------------------------------------------------------------------------
 

@@ -20,6 +20,7 @@ open import Data.List.All hiding (map)
 open import Data.List.Any using (Any; any; here; there) renaming (map to any-map)
 open import Relation.Binary.List.Pointwise using ([]; _∷_) renaming (Rel to RelList)
 open import Data.List.Any.Properties using () renaming (++↔ to ++↔-any)
+import Relation.Binary.EqReasoning
 
 open Symbol symbol using (≡-decidable) renaming (Carrier to Symb)
 
@@ -52,7 +53,7 @@ record Interpretation (sig : Sig) : Set where
     int : (s : Symb) → (s ∈ sig) → Dom
     unambiguity : {s : Symb} → {w1 w2 : s ∈ sig} → int s w1 ≈ int s w2
 
--- i ⟦ s , s∈sig ⟧ returns the value of s.
+-- i ⟦ s ⟧⟨ s∈sig ⟩ returns the value of s.
 
 _⟦_⟧⟨_⟩ : {sig : Sig} → Interpretation sig → (s : Symb) → s ∈ sig → Dom
 _⟦_⟧⟨_⟩ i s s-ok = Interpretation.int i s s-ok
@@ -80,6 +81,15 @@ unambiguity' {sig} i {s} {.s} {w1} {w2} ≡-refl =
 intlist : {sig : Sig} → Interpretation sig → (lst : List Symb) → lst ⊆ sig → List Dom
 intlist i lst lst⊆sig = map-with-∈ lst (λ {x} x∈lst → i ⟦ x ⟧⟨ (lst⊆sig x∈lst) ⟩)
 
+-- intlist is unambiguous
+
+intlist-unamb : {sig : Sig} (i : Interpretation sig) {lst : List Symb}
+                (lst⊆sig1 lst⊆sig2 : lst ⊆ sig) →
+                RelList _≈_ (intlist i lst lst⊆sig1) (intlist i lst lst⊆sig2)
+intlist-unamb {sig} i {[]} lst⊆sig1 lst⊆sig2 = []
+intlist-unamb {sig} i {x ∷ xs} lst⊆sig1 lst⊆sig2 = 
+  unambiguity i ∷ intlist-unamb i (lst⊆sig1 ∘ there) (lst⊆sig2 ∘ there)
+
 -- intedge returns the interpretation of a hyperedge which is true or false
 -- depending on the values of symbols (generally speaking 
 -- it's undecidable whether it's true or false).
@@ -88,12 +98,71 @@ intedge : {sig : Sig} → Interpretation sig → (h : Hyperedge) → source h �
 intedge i h srcok dstok = 
   Eq (Setoid._≈_ domain) (just (i ⟦ source h ⟧⟨ srcok ⟩)) (⟦ label h ⟧L (intlist i (dests h) dstok))
 
+-- intedge is unambiguous
+
+intedge-unamb : {sig : Sig} {i : Interpretation sig} {h : Hyperedge}
+                {srcok1 srcok2 : source h ∈ sig} → {dstok1 dstok2 : dests h ⊆ sig} →
+                intedge i h srcok1 dstok1 → intedge i h srcok2 dstok2
+intedge-unamb {sig} {i} {h} {srcok1} {srcok2} {dstok1} {dstok2} int1 =
+  begin
+    just (i ⟦ source h ⟧⟨ srcok2 ⟩)
+  ≈⟨ just (unambiguity i) ⟩
+    just (i ⟦ source h ⟧⟨ srcok1 ⟩)
+  ≈⟨ int1 ⟩
+    ⟦ label h ⟧L (intlist i (dests h) dstok1)
+  ≈⟨ respect (intlist-unamb i dstok1 dstok2) ⟩
+    ⟦ label h ⟧L (intlist i (dests h) dstok2)
+  ∎
+  where
+    open Relation.Binary.EqReasoning (Data.Maybe.setoid domain)
 
 -- i ⊨[ h ] means that i agrees with the hyperedge h 
 -- (i.e. the source of h is equivalent to the composition of its dests and label)
 
 data _⊨[_] {sig : Sig} (i : Interpretation sig) (h : Hyperedge) : Set where
   yes : (srcok : source h ∈ sig) → (dstok : dests h ⊆ sig) → intedge i h srcok dstok → i ⊨[ h ]
+
+-- Accessors
+
+get-srcok : {sig : Sig} {i : Interpretation sig} {h : Hyperedge} →
+            i ⊨[ h ] → source h ∈ sig
+get-srcok (yes x _ _) = x
+
+get-dstok : {sig : Sig} {i : Interpretation sig} {h : Hyperedge} →
+            i ⊨[ h ] → dests h ⊆ sig
+get-dstok (yes _ x _) = x
+
+get-intedge : {sig : Sig} {i : Interpretation sig} {h : Hyperedge} →
+              (ih : i ⊨[ h ]) → intedge i h (get-srcok ih) (get-dstok ih)
+get-intedge (yes _ _ x) = x
+
+-- Construct i ⊨[ h ].
+
+mk-⊨[] : {sig : Sig} {i : Interpretation sig} {h : Hyperedge}
+         (h⊆sig : edge-nodes h ⊆ sig) → 
+         {srcok : source h ∈ sig} → {dstok : dests h ⊆ sig} →
+         intedge i h srcok dstok → 
+         i ⊨[ h ]
+mk-⊨[] {sig} {i} {h} h⊆sig {srcok} {dstok} y = 
+  yes (h⊆sig (here ≡-refl)) (λ d∈ds → h⊆sig (there d∈ds)) 
+      (intedge-unamb {i = i} {h = h} y)
+
+mk-⊨[]' : {sig : Sig} {i : Interpretation sig} {h1 h2 : Hyperedge} →
+          h1 ≡ h2 →
+          (h1⊆sig : edge-nodes h1 ⊆ sig) → 
+          {srcok : source h2 ∈ sig} → {dstok : dests h2 ⊆ sig} →
+          intedge i h2 srcok dstok → 
+          i ⊨[ h1 ]
+mk-⊨[]' {sig} {i} {h} {.h} ≡-refl h⊆sig {srcok} {dstok} y = 
+  mk-⊨[] {sig} {i} {h} h⊆sig {srcok} {dstok} y
+
+mk-⊨[]-default : {sig : Sig} {i : Interpretation sig} {h : Hyperedge}
+         (h⊆sig : edge-nodes h ⊆ sig) → 
+         intedge i h (h⊆sig (here ≡-refl)) (λ d∈ds → h⊆sig (there d∈ds)) → 
+         i ⊨[ h ]
+mk-⊨[]-default {sig} {i} {h} h⊆sig y = 
+  yes (h⊆sig (here ≡-refl)) (λ d∈ds → h⊆sig (there d∈ds)) 
+      (intedge-unamb {i = i} {h = h} y)
 
 -- Construct i ⊨[ h ], automatically deciding
 -- some obvious statements.
@@ -155,7 +224,7 @@ _≍_ {sig} {sig'} i i' = (n : Symb) → {n∈sig : n ∈ sig} → {n∈sig' : n
     listeq {[]} = []
     listeq {x ∷ xs} = (i≍i' x) ∷ listeq
     
-    edgeseq : Eq _≈_ (⟦ l ⟧L intlist i ds dsok) (⟦ l ⟧L intlist i' ds dsok')
+    edgeseq : Eq _≈_ (⟦ l ⟧L (intlist i ds dsok)) (⟦ l ⟧L (intlist i' ds dsok'))
     edgeseq = respect listeq
 
 
@@ -164,8 +233,7 @@ _≍_ {sig} {sig'} i i' = (n : Symb) → {n∈sig : n ∈ sig} → {n∈sig' : n
 ≍-⊨ : {sig sig' : Sig} → {i : Interpretation sig} → {i' : Interpretation sig'} → i ≍ i' → 
       {h : Hyperedge} → (edge-nodes h ⊆ sig') → i ⊨[ h ] → i' ⊨[ h ]
 ≍-⊨ {sig} {sig'} {i} {i'} i≍i' {src ▷ l ▷ ds} h⊆sig' (yes srcok dstok y) = 
-  yes (h⊆sig' (here ≡-refl)) (λ d∈ds → h⊆sig' (there d∈ds)) 
-      (≍-intedge {i = i} {i' = i'} i≍i' {src ▷ l ▷ ds} y)
+  mk-⊨[]-default h⊆sig' (≍-intedge {i = i} {i' = i'} i≍i' {src ▷ l ▷ ds} y)
 
 -- Get a witness of equality from the fact that h agrees with i. 
 -- Since witnesses of source and dests being in the signature 
