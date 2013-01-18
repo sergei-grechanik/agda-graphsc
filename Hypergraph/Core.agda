@@ -1,7 +1,7 @@
 
 open import Util
 
-module Hypergraph.Core (symbol : Symbol) (semantics : Semantics) where
+module Hypergraph.Core (semantics : Semantics) (Symb : Set) where
 
 open import ListUtil
 
@@ -20,8 +20,6 @@ open import Data.List.All.Properties
 open import Data.List.Any using (Any; any; here; there) renaming (map to any-map)
 open import Data.List.Any.Properties using () renaming (++↔ to ++↔-any)
 import Algebra
-
-open Symbol symbol using (≡-decidable) renaming (Carrier to Symb)
 
 open import Relation.Binary.PropositionalEquality using (_≡_; subst) 
   renaming (setoid to ≡-setoid; refl to ≡-refl; sym to ≡-sym; trans to ≡-trans; cong to ≡-cong)
@@ -55,13 +53,13 @@ hyperedge2tuple h = source h , label h , dests h
 hyperedge2tuple-inj : ∀ {h1 h2} → hyperedge2tuple h1 ≡ hyperedge2tuple h2 → h1 ≡ h2
 hyperedge2tuple-inj {y ▷ y' ▷ y0} {.y ▷ .y' ▷ .y0} ≡-refl = ≡-refl
 
-hyperedge-≡-decidable : Decidable (_≡_ {A = Hyperedge})
-hyperedge-≡-decidable = 
+hyperedge-≡-decidable : Decidable (_≡_ {A = Symb}) → Decidable (_≡_ {A = Hyperedge})
+hyperedge-≡-decidable ≡-decidable = 
   make-≟ hyperedge2tuple hyperedge2tuple-inj 
          (≡-decidable ×-≟ (label-≡-decidable ×-≟ []-≟ ≡-decidable))
 
-hyperedge-∈-decidable : Decidable (_∈_ {A = Hyperedge})
-hyperedge-∈-decidable = ∈-decidable hyperedge-≡-decidable
+hyperedge-∈-decidable : Decidable (_≡_ {A = Symb}) → Decidable (_∈_ {A = Hyperedge})
+hyperedge-∈-decidable ≡-decidable = ∈-decidable (hyperedge-≡-decidable ≡-decidable)
 
 -- A hypergraph is a list of hyperedges.
 
@@ -152,6 +150,7 @@ nodes-++ {x ∷ xs} {g2} =
 ⊆-++₂ : {g1 g2 : Hypergraph} → g2 ⊆ (g1 ++ g2)
 ⊆-++₂ {g1} {g2} x∈g2 = ++→-any₂ {xs = g1} {ys = g2} x∈g2
 
+{-
 ----------------------------------------------------------------------------------------------------
 
 -- Hypergraph subtraction.
@@ -219,3 +218,4 @@ norm-⊆ : {l1 l2 : List Symb} → l1 ⊆ l2 → l1 ⊆ l2
 norm-⊆ {l1} {l2} l1⊆l2 with ⊆-decidable ≡-decidable l1 l2
 ... | yes w = w
 ... | no nw = ⊥-elim (nw l1⊆l2)
+-}

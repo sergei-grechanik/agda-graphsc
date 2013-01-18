@@ -1,197 +1,325 @@
 
 open import Util
 
-module Hypergraph.Interpretation (symbol : Symbol) (semantics : Semantics) where
+module Hypergraph.Interpretation (semantics : Semantics) where
 
 open import ListUtil
 
 open import Function
-open import Function.Inverse hiding (_∘_)
-open import Function.Equality hiding (_∘_)
+open import Function.Inverse hiding (_∘_; map; id)
+open import Function.Equality hiding (_∘_; id)
 open import Relation.Binary
 open import Relation.Nullary
-open import Relation.Nullary.Decidable
+open import Relation.Nullary.Decidable hiding (map)
 open import Data.Product hiding (map)
 open import Data.Maybe using (Maybe; just; nothing; Eq; maybeToBool) renaming (setoid to eq-setoid)
 open import Data.Bool using (T)
-open import Data.Sum renaming ([_,_] to [_,_]-sum)
+open import Data.Sum renaming ([_,_] to [_,_]-sum; map to _⊕_)
 open import Data.List hiding (any)
+open import Data.List.Properties
 open import Data.List.All hiding (map)
 open import Data.List.Any using (Any; any; here; there) renaming (map to any-map)
 open import Relation.Binary.List.Pointwise using ([]; _∷_) renaming (Rel to RelList)
-open import Data.List.Any.Properties using () renaming (++↔ to ++↔-any)
+open import Data.List.Any.Properties using (map↔) renaming (++↔ to ++↔-any)
+open import Data.List.All.Properties using (++↔)
 import Relation.Binary.EqReasoning
 
-open Symbol symbol using (≡-decidable) renaming (Carrier to Symb)
-
-open import Relation.Binary.PropositionalEquality using (trans; _≡_; subst) 
-  renaming (setoid to ≡-setoid; refl to ≡-refl; cong to ≡-cong; sym to ≡-sym)
+open import Relation.Binary.PropositionalEquality using (_≡_; subst) 
+  renaming (setoid to ≡-setoid; refl to ≡-refl; cong to ≡-cong; sym to ≡-sym; trans to ≡-trans)
 open Data.List.Any.Membership-≡ 
 
 open Semantics semantics
-open Setoid domain using (_≈_; refl) renaming (Carrier to Dom; sym to ≈-sym; trans to ≈-trans) 
+open Setoid domain using (_≈_)
+  renaming (Carrier to Dom; sym to ≈-sym; trans to ≈-trans; refl to ≈-refl) 
 
 
 import Hypergraph.Core
-open Hypergraph.Core symbol semantics
+open Hypergraph.Core semantics
 
--- A signature is just a list of symbols.
 
-Sig : Set
-Sig = List Symb
+----------------------------------------------------------------------------------------------------
+
+pointwise-map : ∀ {a b} {A : Set a} {B : Set b} {_∼_ : B → B → Set b} {f g : A → B} {l : List A} →
+                ((x : A) → f x ∼ g x) → RelList _∼_ (map f l) (map g l)
+pointwise-map {l = []} f∼g = []
+pointwise-map {l = x ∷ xs} f∼g = f∼g x ∷ pointwise-map {l = xs} f∼g
+
+----------------------------------------------------------------------------------------------------
+
+edge-map : {S1 S2 : Set} → (S1 → S2) → Hyperedge S1 → Hyperedge S2
+edge-map f h = f (source _ h) ▷ label _ h ▷ map f (dests _ h)
+
+hmap : {S1 S2 : Set} → (S1 → S2) → Hypergraph S1 → Hypergraph S2
+hmap f g = map (edge-map f) g
+
+----------------------------------------------------------------------------------------------------
 
 -- An interpretation.
--- It contains a function int that takes a symbol and a 
--- witness that it belongs to the signature, and returns
--- its corresponding value (interpretation) in Dom.
---
--- It also contains a statement unambiguity that states
--- that the function int returns the same thing for each witness.
 
-record Interpretation (sig : Sig) : Set where
-  field
-    int : (s : Symb) → (s ∈ sig) → Dom
-    unambiguity : {s : Symb} → {w1 w2 : s ∈ sig} → int s w1 ≈ int s w2
+Interpretation : Set → Set
+Interpretation Symb = Symb → Dom
 
--- i ⟦ s ⟧⟨ s∈sig ⟩ returns the value of s.
+-- i ⊨[ h ] means that i agrees with h, i.e. the interpretation
+-- of the source is equal to the composition of dests' interpretations.
 
-_⟦_⟧⟨_⟩ : {sig : Sig} → Interpretation sig → (s : Symb) → s ∈ sig → Dom
-_⟦_⟧⟨_⟩ i s s-ok = Interpretation.int i s s-ok
-
--- Same thing, but easy to use (in some contexts) because it decides s ∈ sig by itself.
-
-_⟦_⟧ : {sig : Sig} → Interpretation sig → (s : Symb) → {_ : True (∈-decidable ≡-decidable s sig)} → Dom
-_⟦_⟧ i s {t} = i ⟦ s ⟧⟨ toWitness t ⟩
-
--- Well, unambiguity.
-
-unambiguity : {sig : Sig} → (i : Interpretation sig) → {s : Symb} → {w1 w2 : s ∈ sig} → i ⟦ s ⟧⟨ w1 ⟩ ≈ i ⟦ s ⟧⟨ w2 ⟩
-unambiguity {sig} i {s} {w1} {w2} = Interpretation.unambiguity i {s} {w1} {w2}
-
--- Sometimes this version is more convenient.
-
-unambiguity' : {sig : Sig} → (i : Interpretation sig) → 
-              {s1 s2 : Symb} → {w1 : s1 ∈ sig} {w2 : s2 ∈ sig} → 
-              s1 ≡ s2 → i ⟦ s1 ⟧⟨ w1 ⟩ ≈ i ⟦ s2 ⟧⟨ w2 ⟩
-unambiguity' {sig} i {s} {.s} {w1} {w2} ≡-refl = 
-  Interpretation.unambiguity i {s} {w1} {w2}
-
--- intlist returns a list of values for a list of symbols.
-
-intlist : {sig : Sig} → Interpretation sig → (lst : List Symb) → lst ⊆ sig → List Dom
-intlist i lst lst⊆sig = map-with-∈ lst (λ {x} x∈lst → i ⟦ x ⟧⟨ (lst⊆sig x∈lst) ⟩)
-
--- intlist is unambiguous
-
-intlist-unamb : {sig : Sig} (i : Interpretation sig) {lst : List Symb}
-                (lst⊆sig1 lst⊆sig2 : lst ⊆ sig) →
-                RelList _≈_ (intlist i lst lst⊆sig1) (intlist i lst lst⊆sig2)
-intlist-unamb {sig} i {[]} lst⊆sig1 lst⊆sig2 = []
-intlist-unamb {sig} i {x ∷ xs} lst⊆sig1 lst⊆sig2 = 
-  unambiguity i ∷ intlist-unamb i (lst⊆sig1 ∘ there) (lst⊆sig2 ∘ there)
-
--- intedge returns the interpretation of a hyperedge which is true or false
--- depending on the values of symbols (generally speaking 
--- it's undecidable whether it's true or false).
-
-intedge : {sig : Sig} → Interpretation sig → (h : Hyperedge) → source h ∈ sig → dests h ⊆ sig → Set
-intedge i h srcok dstok = 
-  Eq (Setoid._≈_ domain) (just (i ⟦ source h ⟧⟨ srcok ⟩)) (⟦ label h ⟧L (intlist i (dests h) dstok))
-
--- intedge is unambiguous
-
-intedge-unamb : {sig : Sig} {i : Interpretation sig} {h : Hyperedge}
-                {srcok1 srcok2 : source h ∈ sig} → {dstok1 dstok2 : dests h ⊆ sig} →
-                intedge i h srcok1 dstok1 → intedge i h srcok2 dstok2
-intedge-unamb {sig} {i} {h} {srcok1} {srcok2} {dstok1} {dstok2} int1 =
-  begin
-    just (i ⟦ source h ⟧⟨ srcok2 ⟩)
-  ≈⟨ just (unambiguity i) ⟩
-    just (i ⟦ source h ⟧⟨ srcok1 ⟩)
-  ≈⟨ int1 ⟩
-    ⟦ label h ⟧L (intlist i (dests h) dstok1)
-  ≈⟨ respect (intlist-unamb i dstok1 dstok2) ⟩
-    ⟦ label h ⟧L (intlist i (dests h) dstok2)
-  ∎
-  where
-    open Relation.Binary.EqReasoning (Data.Maybe.setoid domain)
-
--- i ⊨[ h ] means that i agrees with the hyperedge h 
--- (i.e. the source of h is equivalent to the composition of its dests and label)
-
-data _⊨[_] {sig : Sig} (i : Interpretation sig) (h : Hyperedge) : Set where
-  yes : (srcok : source h ∈ sig) → (dstok : dests h ⊆ sig) → intedge i h srcok dstok → i ⊨[ h ]
-
--- Accessors
-
-get-srcok : {sig : Sig} {i : Interpretation sig} {h : Hyperedge} →
-            i ⊨[ h ] → source h ∈ sig
-get-srcok (yes x _ _) = x
-
-get-dstok : {sig : Sig} {i : Interpretation sig} {h : Hyperedge} →
-            i ⊨[ h ] → dests h ⊆ sig
-get-dstok (yes _ x _) = x
-
-get-intedge : {sig : Sig} {i : Interpretation sig} {h : Hyperedge} →
-              (ih : i ⊨[ h ]) → intedge i h (get-srcok ih) (get-dstok ih)
-get-intedge (yes _ _ x) = x
-
--- Construct i ⊨[ h ].
-
-mk-⊨[] : {sig : Sig} {i : Interpretation sig} {h : Hyperedge}
-         (h⊆sig : edge-nodes h ⊆ sig) → 
-         {srcok : source h ∈ sig} → {dstok : dests h ⊆ sig} →
-         intedge i h srcok dstok → 
-         i ⊨[ h ]
-mk-⊨[] {sig} {i} {h} h⊆sig {srcok} {dstok} y = 
-  yes (h⊆sig (here ≡-refl)) (λ d∈ds → h⊆sig (there d∈ds)) 
-      (intedge-unamb {i = i} {h = h} y)
-
-mk-⊨[]' : {sig : Sig} {i : Interpretation sig} {h1 h2 : Hyperedge} →
-          h1 ≡ h2 →
-          (h1⊆sig : edge-nodes h1 ⊆ sig) → 
-          {srcok : source h2 ∈ sig} → {dstok : dests h2 ⊆ sig} →
-          intedge i h2 srcok dstok → 
-          i ⊨[ h1 ]
-mk-⊨[]' {sig} {i} {h} {.h} ≡-refl h⊆sig {srcok} {dstok} y = 
-  mk-⊨[] {sig} {i} {h} h⊆sig {srcok} {dstok} y
-
-mk-⊨[]-default : {sig : Sig} {i : Interpretation sig} {h : Hyperedge}
-         (h⊆sig : edge-nodes h ⊆ sig) → 
-         intedge i h (h⊆sig (here ≡-refl)) (λ d∈ds → h⊆sig (there d∈ds)) → 
-         i ⊨[ h ]
-mk-⊨[]-default {sig} {i} {h} h⊆sig y = 
-  yes (h⊆sig (here ≡-refl)) (λ d∈ds → h⊆sig (there d∈ds)) 
-      (intedge-unamb {i = i} {h = h} y)
-
--- Construct i ⊨[ h ], automatically deciding
--- some obvious statements.
-
-auto-⊨[] : {sig : Sig} {i : Interpretation sig} {h : Hyperedge}
-           {t-src : True (∈-decidable ≡-decidable (source h) sig)}
-           {t-dst : True (⊆-decidable ≡-decidable (dests h) sig)} 
-           {t-just : T (maybeToBool ((⟦ label h ⟧L (intlist i (dests h) (toWitness t-dst)))))} →
-           (Setoid._≈_ domain) 
-             (i ⟦ source h ⟧⟨ toWitness t-src ⟩) 
-             (unjust (⟦ label h ⟧L (intlist i (dests h) (toWitness t-dst))) {t-just}) →
-           i ⊨[ h ]
-auto-⊨[] {i = i} {h = h} {t-src = t-src} {t-dst = t-dst} {t-just = t-just} eq  = 
-  yes (toWitness t-src) (toWitness t-dst) 
-      (subst (Eq (Setoid._≈_ domain) (just (i ⟦ source h ⟧⟨ toWitness t-src ⟩))) ju (just eq))
-  where
-    ju : just (unjust (⟦ label h ⟧L (intlist i (dests h) (toWitness t-dst))) {t-just}) ≡ 
-                      (⟦ label h ⟧L (intlist i (dests h) (toWitness t-dst)))
-    ju = just-unjust 
+_⊨[_] : {S : Set} → Interpretation S → Hyperedge S → Set
+i ⊨[ h ] =
+  Eq (Setoid._≈_ domain) (just (i (source _ h))) (⟦ label _ h ⟧L (map i (dests _ h)))
 
 -- An interpretation is a model of a hypergraph if it agrees with all its hyperedges.
 -- Written i ⊨ g.
 
-modelled : (g : Hypergraph) → (i : Interpretation (nodes g)) → Set
-modelled g i = All (_⊨[_] i) g
+_⊨_ : {S : Set} → Interpretation S → Hypergraph S → Set
+i ⊨ g = All (_⊨[_] i) g
 
-syntax modelled g i = i ⊨ g
+
+-- A simple property.
+-- i ⊨ hmap f g  =  (i ∘ f) ⊨ g
+
+⊨-hmap : {S1 S2 : Set} {i : Interpretation S2} {g : Hypergraph S1} {f : S1 → S2} →
+         i ⊨ hmap f g → (i ∘ f) ⊨ g
+⊨-hmap {S1} {S2} {i} {[]} _ = []
+⊨-hmap {S1} {S2} {i} {x ∷ xs} {f} (px ∷ pxs) = 
+  subst (λ ● → Eq _≈_ (just (i (f (source _ x)))) (⟦ label _ x ⟧L ● )) 
+        (≡-sym (map-compose (dests _ x))) px 
+  ∷ ⊨-hmap {g = xs} pxs
+
+⊨-hmap-inv : {S1 S2 : Set} {i : Interpretation S2} {g : Hypergraph S1} {f : S1 → S2} →
+             (i ∘ f) ⊨ g → i ⊨ hmap f g
+⊨-hmap-inv {S1} {S2} {i} {[]} _ = []
+⊨-hmap-inv {S1} {S2} {i} {x ∷ xs} {f} (px ∷ pxs) = 
+  subst (λ ● → Eq _≈_ (just (i (f (source _ x)))) (⟦ label _ x ⟧L ● )) 
+        (map-compose (dests _ x)) px 
+  ∷ ⊨-hmap-inv {g = xs} pxs  
+
+-- If i models a sum of graphs then it model each element of the sum.
+
+⊨-++₁ : {S : Set} {i : Interpretation S} {g1 g2 : Hypergraph S} →
+        i ⊨ (g1 ++ g2) → i ⊨ g1
+⊨-++₁ i⊨gs = proj₁ (Inverse.from ++↔ ⟨$⟩ i⊨gs)
+
+⊨-++₂ : {S : Set} {i : Interpretation S} {g1 g2 : Hypergraph S} →
+        i ⊨ (g1 ++ g2) → i ⊨ g2
+⊨-++₂ {g1 = g1} {g2 = g2} i⊨gs = proj₂ (Inverse.from (++↔ {xs = g1} {ys = g2}) ⟨$⟩ i⊨gs)
 
 ----------------------------------------------------------------------------------------------------
+
+-- Pointwise equality for interpretations
+
+_≗_ : {S : Set} (i1 i2 : Interpretation S) → Set
+_≗_ {S} i1 i2 = (s : S) → i1 s ≈ i2 s
+
+≗-sym : {S : Set} → Symmetric (_≗_ {S = S})
+≗-sym i1≗i2 s = ≈-sym (i1≗i2 s)
+
+-- i1 ≈[ f ] i2  means that i2 is an extension of i1, i.e. i1 can be reconstructed
+-- by composing i2 and f, i.e. i1 ≗ i2 ∘ f
+
+_≈[_]_ : {S1 S2 : Set} (i1 : Interpretation S1) (f : S1 → S2) (i2 : Interpretation S2) → Set
+_≈[_]_ {S1} {S2} i1 f i2 = i1 ≗ (i2 ∘ f)
+
+
+-- Equivalent interpretations agree on hyperedges and hypergraphs.
+
+≗-⊨[] : {S : Set} {i1 i2 : Interpretation S} {h : Hyperedge S} →
+        i1 ≗ i2 → i1 ⊨[ h ] → i2 ⊨[ h ]
+≗-⊨[] {S} {i1} {i2} {h} i1≗i2 i1⊨h = 
+  begin
+    just (i2 (source _ h))
+  ≈⟨ just (≈-sym (i1≗i2 _)) ⟩
+    just (i1 (source _ h))
+  ≈⟨ i1⊨h ⟩
+    ⟦ label _ h ⟧L (map i1 (dests _ h))
+  ≈⟨ respect (pointwise-map i1≗i2) ⟩
+    ⟦ label _ h ⟧L (map i2 (dests _ h))
+  ∎
+  where
+    open Relation.Binary.EqReasoning (Data.Maybe.setoid domain)
+
+≗-⊨ : {S : Set} {i1 i2 : Interpretation S} {g : Hypergraph S} →
+      i1 ≗ i2 → i1 ⊨ g → i2 ⊨ g
+≗-⊨ {g = []} i1≗i2 [] = []
+≗-⊨ {g = h ∷ hs} i1≗i2 (ph ∷ phs) = 
+  (≗-⊨[] {h = h} i1≗i2 ph) ∷ ≗-⊨ {g = hs} i1≗i2 phs
+
+-- "Equivalent" interpretations agree on corresponding hyperedges.
+
+≈[]-⊨[] : {S1 S2 : Set} {i1 : Interpretation S1} {f : S1 → S2} {i2 : Interpretation S2} {h : Hyperedge S1} →
+          i1 ≈[ f ] i2 → i1 ⊨[ h ] → i2 ⊨[ edge-map f h ]
+≈[]-⊨[] {S1} {S2} {i1} {f} {i2} {h} i1≈i2 i1⊨h = 
+  begin
+    just (i2 (f (source _ h)))
+  ≈⟨ ≗-⊨[] {h = h} i1≈i2 i1⊨h ⟩
+    ⟦ label _ h ⟧L (map (i2 ∘ f) (dests _ h))
+  ≡⟨ ≡-cong ⟦ label _ h ⟧L (map-compose (dests _ h)) ⟩
+    ⟦ label _ h ⟧L (map i2 (map f (dests _ h)))
+  ∎
+  where
+    open Relation.Binary.EqReasoning (Data.Maybe.setoid domain)
+
+-- "Equivalent" interpretations agree on corresponding hypergraphs.
+
+≈[]-⊨ : {S1 S2 : Set} {i1 : Interpretation S1} {f : S1 → S2} {i2 : Interpretation S2} {g : Hypergraph S1} →
+          i1 ≈[ f ] i2 → i1 ⊨ g → i2 ⊨ hmap f g
+≈[]-⊨ i1≈i2 i1⊨g = ⊨-hmap-inv (≗-⊨ i1≈i2 i1⊨g)
+
+----------------------------------------------------------------------------------------------------
+
+-- g1 ⇛[ f ] g2 means that g2 is a consequence of g1, that is
+-- for every interpretation of g1 there is an "equivalent" (≈[ f ])
+-- interpretation of g2.
+
+_⇛[_]_ : {S1 S2 : Set} (g1 : Hypergraph S1) (f : S1 → S2) (g2 : Hypergraph S2) → Set
+_⇛[_]_ {S1} {S2} g1 f g2 = 
+  (i1 : Interpretation S1) → i1 ⊨ g1 → Σ (Interpretation S2) (λ i2 → (i1 ≈[ f ] i2) × (i2 ⊨ g2))
+
+-- g1 ⇛[ f ] g2 means that g2 is a consequence of g1, that is
+-- for every interpretation of g1 there is an "equivalent" (≈[ f ])
+-- interpretation of g2.
+
+_⇚[_]_ : {S1 S2 : Set} (g1 : Hypergraph S1) (f : S1 → S2) (g2 : Hypergraph S2) → Set
+_⇚[_]_ {S1} {S2} g1 f g2 = 
+  (i2 : Interpretation S2) → i2 ⊨ g2 → Σ (Interpretation S1) (λ i1 → (i1 ≈[ f ] i2) × (i1 ⊨ g1))
+
+-- g1 ⇄ g2 means that these graphs are equal on their "common" nodes 
+-- and there are no nodes removed in g2 (but some nodes may be glued).
+-- This is what we want from transformations: we preserve equivalence
+-- and don't throw away any nodes.
+
+_⇄[_]_ : {S1 S2 : Set} (g1 : Hypergraph S1) (f : S1 → S2) (g2 : Hypergraph S2) → Set
+g1 ⇄[ f ] g2 = (g1 ⇛[ f ] g2) × (g1 ⇚[ f ] g2)
+
+----------------------------------------------------------------------------------------------------
+
+-- Some properties of ⇛ and others.
+
+-- TODO
+
+----------------------------------------------------------------------------------------------------
+
+-- Subgraph replacement theorems.
+-- Informally if we replace a subgraph with an equivalent one then the whole resultant graph
+-- will be equivalent to the original.
+
+⇛-++ : {S1 S2 : Set} {g : Hypergraph S1} {g1 : Hypergraph S1} {g2 : Hypergraph S2} {f : S1 → S2} →
+       g1 ⇛[ f ] g2 → (g1 ++ g) ⇛[ f ] (g2 ++ hmap f g)
+⇛-++ {S1} {S2} {g} {g1} {g2} {f} g1⇛g2 i1 i1⊨g1g
+  with g1⇛g2 i1 (⊨-++₁ i1⊨g1g)
+... | i2 , i1≈i2 , i2⊨g2 = 
+  i2 , 
+  i1≈i2 , 
+  tabulate i2⊨g2g
+  where
+    i2⊨g2g : ∀ {h} → h ∈ (g2 ++ hmap f g) → i2 ⊨[ h ]
+    i2⊨g2g h∈gs with Inverse.from (++↔-any {xs = g2} {ys = hmap f g} ) ⟨$⟩ h∈gs
+    ... | inj₁ h∈g2 = lookup i2⊨g2 h∈g2
+    ... | inj₂ h∈g' = lookup (⊨-hmap-inv (≗-⊨ i1≈i2 (⊨-++₂ {g1 = g1} {g2 = g} i1⊨g1g))) h∈g'
+
+-- This case is symmetric to the previous.
+
+⇚-++ : {S1 S2 : Set} {g : Hypergraph S1} {g1 : Hypergraph S1} {g2 : Hypergraph S2} {f : S1 → S2} →
+       g1 ⇚[ f ] g2 → (g1 ++ g) ⇚[ f ] (g2 ++ hmap f g)
+⇚-++ {S1} {S2} {g} {g1} {g2} {f} g1⇚g2 i2 i2⊨g2g
+  with g1⇚g2 i2 (⊨-++₁ i2⊨g2g)
+... | i1 , i1≈i2 , i1⊨g1 = 
+  i1 , 
+  i1≈i2 , 
+  tabulate i1⊨g1g
+  where
+    i1⊨g1g : ∀ {h} → h ∈ (g1 ++ g) → i1 ⊨[ h ]
+    i1⊨g1g h∈gs with Inverse.from (++↔-any {xs = g1} {ys = g} ) ⟨$⟩ h∈gs
+    ... | inj₁ h∈g1 = lookup i1⊨g1 h∈g1
+    ... | inj₂ h∈g = lookup (≗-⊨ (≗-sym i1≈i2) (⊨-hmap (⊨-++₂ {g1 = g2} {g2 = hmap f g} i2⊨g2g))) h∈g
+
+-- And their combination.
+
+⇄-++ : {S1 S2 : Set} {g : Hypergraph S1} {g1 : Hypergraph S1} {g2 : Hypergraph S2} {f : S1 → S2} →
+      g1 ⇄[ f ] g2 → (g1 ++ g) ⇄[ f ] (g2 ++ hmap f g)
+⇄-++ (g1⇛g2 , g1⇚g2) = ⇛-++ g1⇛g2 , ⇚-++ g1⇚g2
+
+----------------------------------------------------------------------------------------------------
+
+
+{-
+⇛-⊎ : {S1 S2 S : Set} {g : Hypergraph (S1 ⊎ S)} {g1 : Hypergraph S1} {g2 : Hypergraph S2} {f : S1 → S2} →
+      g1 ⇛[ f ] g2 → (hmap inj₁ g1 ++ g) ⇛[ f ⊕ id ] (hmap inj₁ g2 ++ hmap (f ⊕ id) g)
+⇛-⊎ {S1} {S2} {S} {g} {g1} {g2} {f} g1⇛g2 =
+  ⇛-++ g1'⇛g2'
+  where
+    g1'⇛g2' : hmap inj₁ g1 ⇛[ f ⊕ id ] hmap inj₁ g2
+    g1'⇛g2' i1 i1⊨g1 = i2 , {!!} , {!!}
+      where
+        i2 : Interpretation (S2 ⊎ S)
+        i2 (inj₁ s1) = proj₁ (g1⇛g2 (i1 ∘ inj₁) (⊨-hmap i1⊨g1)) s1
+        i2 (inj₂ s) = i1 (inj₂ s)
+-}
+
+{-
+⇛-⊎ : {S1 S2 S : Set} {g : Hypergraph (S1 ⊎ S)} {g1 : Hypergraph S1} {g2 : Hypergraph S2} {f : S1 → S2} →
+      g1 ⇛[ f ] g2 → (hmap inj₁ g1 ++ g) ⇛[ f ⊕ id ] (hmap inj₁ g2 ++ hmap (f ⊕ id) g)
+⇛-⊎ {S1} {S2} {S} {g} {g1} {g2} {f} g1⇛g2 i10 i10⊨g10
+  with g1⇛g2 (i10 ∘ inj₁) (⊨-hmap (⊨-++₁ i10⊨g10))
+... | i2 , i2≈i1 , i2⊨g2 = 
+  i20 , 
+  i10≈i20 , 
+  tabulate i20⊨g20
+  where
+    i20 : S2 ⊎ S → Dom
+    i20 (inj₁ s2) = i2 s2
+    i20 (inj₂ s) = i10 (inj₂ s)
+    
+    i10≈i20 : i10 ≈[ f ⊕ id ] i20
+    i10≈i20 (inj₁ s1) = i2≈i1 s1
+    i10≈i20 (inj₂ s) = ≈-refl
+
+    i10⊨g : i10 ⊨ g
+    i10⊨g = ⊨-++₂ {g1 = hmap inj₁ g1} {g2 = g} i10⊨g10
+
+    i10'⊨g : (i20 ∘ (f ⊕ id)) ⊨ g
+    i10'⊨g = ≗-⊨ i10≈i20 i10⊨g
+
+    i20⊨g20 : ∀ {h} → h ∈ (hmap inj₁ g2 ++ hmap (f ⊕ id) g) → i20 ⊨[ h ]
+    i20⊨g20 h∈gs with Inverse.from (++↔-any {xs = hmap inj₁ g2} {ys = hmap (f ⊕ id) g} ) ⟨$⟩ h∈gs
+    ... | inj₁ h∈g2' = lookup (⊨-hmap-inv (i2⊨g2 ∶ (i20 ∘ inj₁) ⊨ g2)) h∈g2'
+    ... | inj₂ h∈g' = lookup (⊨-hmap-inv i10'⊨g) h∈g'
+
+-- This case is symmetric to the previous.
+
+⇚-⊎ : {S1 S2 S : Set} {g : Hypergraph (S1 ⊎ S)} {g1 : Hypergraph S1} {g2 : Hypergraph S2} {f : S1 → S2} →
+      g1 ⇚[ f ] g2 → (hmap inj₁ g1 ++ g) ⇚[ f ⊕ id ] (hmap inj₁ g2 ++ hmap (f ⊕ id) g)
+⇚-⊎ {S1} {S2} {S} {g} {g1} {g2} {f} g1⇚g2 i20 i20⊨g20
+  with g1⇚g2 (i20 ∘ inj₁) (⊨-hmap (⊨-++₁ i20⊨g20))
+... | i1 , i1≈i2 , i1⊨g1 = 
+  i10 , 
+  i10≈i20 , 
+  tabulate i10⊨g10
+  where
+    i10 : S1 ⊎ S → Dom
+    i10 (inj₁ s1) = i1 s1
+    i10 (inj₂ s) = i20 (inj₂ s)
+    
+    i10≈i20 : i10 ≈[ f ⊕ id ] i20
+    i10≈i20 (inj₁ s1) = i1≈i2 s1
+    i10≈i20 (inj₂ s) = ≈-refl
+
+    i20⊨g' : i20 ⊨ hmap (f ⊕ id) g
+    i20⊨g' = ⊨-++₂ {g1 = hmap inj₁ g2} {g2 = hmap (f ⊕ id) g} i20⊨g20
+
+    i10'⊨g : (i20 ∘ (f ⊕ id)) ⊨ g
+    i10'⊨g = ⊨-hmap i20⊨g'
+
+    i10⊨g10 : ∀ {h} → h ∈ (hmap inj₁ g1 ++ g) → i10 ⊨[ h ]
+    i10⊨g10 h∈gs with Inverse.from (++↔-any {xs = hmap inj₁ g1} {ys = g} ) ⟨$⟩ h∈gs
+    ... | inj₁ h∈g1' = lookup (⊨-hmap-inv (i1⊨g1 ∶ (i10 ∘ inj₁) ⊨ g1)) h∈g1'
+    ... | inj₂ h∈g = lookup (≗-⊨ (≗-sym i10≈i20) i10'⊨g) h∈g
+
+⇄-⊎ : {S1 S2 S : Set} {g : Hypergraph (S1 ⊎ S)} {g1 : Hypergraph S1} {g2 : Hypergraph S2} {f : S1 → S2} →
+      g1 ⇄[ f ] g2 → (hmap inj₁ g1 ++ g) ⇄[ f ⊕ id ] (hmap inj₁ g2 ++ hmap (f ⊕ id) g)
+⇄-⊎ (g1⇛g2 , g1⇚g2) = ⇛-⊎ g1⇛g2 , ⇚-⊎ g1⇚g2
+-}
+
+
+{-
 
 -- i1 ≍ i2 means that they are equal on the intersection of their signatures.
 -- This relation is reflexive, symmetric, but not transitive.
@@ -505,3 +633,4 @@ join-int {g1} {g2} {i1} {i2} i1⊨g1 i2⊨g2 i1≍i2 =
 ⇄-++-⇄ : {g1 g2 : Hypergraph} →
          g1 ⇄ g2 → g1 ⇄ (g2 ++ g1)
 ⇄-++-⇄ {g1} {g2} (g1⇛g2 , _ , _) = ⇛-++-⇄ {g1} {g2} g1⇛g2
+-}
