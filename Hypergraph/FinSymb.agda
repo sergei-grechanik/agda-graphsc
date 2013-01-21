@@ -33,6 +33,9 @@ open import Relation.Binary.PropositionalEquality using (_≡_; subst; subst₂;
   renaming (setoid to ≡-setoid; refl to ≡-refl; cong to ≡-cong; sym to ≡-sym; trans to ≡-trans; [_] to i[_])
 open Data.List.Any.Membership-≡ 
 
+open StrictTotalOrder Data.Nat.Properties.strictTotalOrder using () renaming (compare to cmp)
+open DecTotalOrder Data.Nat.decTotalOrder using () renaming (trans to ≤-trans)
+
 open Semantics semantics
 open Setoid domain using (_≈_)
   renaming (Carrier to Dom; sym to ≈-sym; trans to ≈-trans; refl to ≈-refl) 
@@ -45,24 +48,26 @@ import Hypergraph.Interpretation
 open Hypergraph.Interpretation semantics
 
 
--- This helper function just creates a map that "glues" f to g'.
 
-coequalizer1-helper : ∀ {n} → (f : Fin (suc n)) → (g' : Fin′ f) → Fin (suc n) → Fin n
-coequalizer1-helper f g' k with compare k f
-coequalizer1-helper .f g' .(inject k') | less f k' = inject! k'
-coequalizer1-helper .f g' .f | equal f = inject! g'
-coequalizer1-helper .(inject f') g' .(suc k) | greater (suc k) f' = k
-coequalizer1-helper .(inject f') g' .zero | greater zero f' with f'
-... | ()
+-- This helper function just creates a map that "glues" f to g.
+
+coequalizer1-helper : ∀ {n} (f : Fin (suc n)) (g : Fin (suc n)) →
+                      toℕ f < toℕ g → Fin (suc n) → Fin n
+coequalizer1-helper f g f<g k with cmp (toℕ k) (toℕ g)
+... | tri≈ ¬a b ¬c = fromℕ≤ (≤-trans f<g (≤-pred (bounded g)))
+... | tri< k<g ¬b ¬c = fromℕ≤ (≤-trans k<g (≤-pred (bounded g)))
+... | tri> ¬a ¬b c with k
+coequalizer1-helper f g f<g k | tri> ¬a ¬b () | zero
+... | suc k' = fromℕ≤ (≤-pred (bounded (suc k')))
 
 -- Coequalizer for the special case when m = 1
 
 coequalizer1 : ∀ {n} → Fin n → Fin n → ∃ λ k → (Fin n → Fin k)
 coequalizer1 {zero} () ()
-coequalizer1 {suc n} f g with compare f g
-coequalizer1 {suc n} f .f | equal .f = suc n , Function.id
-coequalizer1 {suc n} .f .(inject g') | greater f g' = n , coequalizer1-helper f g'
-coequalizer1 {suc n} .(inject f') .g | less g f' = n , coequalizer1-helper g f'
+coequalizer1 {suc n} f g with cmp (toℕ f) (toℕ g)
+... | tri≈ ¬a b ¬c = suc n , id
+... | tri< a ¬b ¬c = n , coequalizer1-helper f g a
+... | tri> ¬a ¬b c = n , coequalizer1-helper g f c
 
 -- Coequalizer for finite sets.
 
@@ -127,53 +132,36 @@ inject₁∘inject! j = toℕ-inj (
     open Relation.Binary.PropositionalEquality.≡-Reasoning
 
 ----------------------------------------------------------------------------------------------------
+-- Here we prove that coequalizer equalizes.
 
-coequalizer1-helper-≡₁ : ∀ {n} (f : Fin (suc n)) (g' : Fin′ f) →
-                         coequalizer1-helper f g' (inject g') ≡ inject! g'
-coequalizer1-helper-≡₁ f g' with inject g' | inspect inject g' | compare (inject g') f
-coequalizer1-helper-≡₁ f g' | .f | i[ e ]  | equal .f = ≡-refl
-coequalizer1-helper-≡₁ .(inject least) g' | inj-g' | i[ e ]  | greater .inj-g' least = 
-  let g'<least = subst (λ t → toℕ g' < t) (inject-lemma least) (bounded g')
-      least<g' = subst (λ t → toℕ least < t) (inject-lemma g') (subst (λ t → toℕ least < toℕ t) (≡-sym e) (bounded least))
-  in ⊥-elim (1+n≰n {toℕ g'} (<-trans g'<least least<g'))
-coequalizer1-helper-≡₁ f g' | .(inject least) | i[ e ] | less .f least = toℕ-inj (
+coequalizer1-helper-≡ : ∀ {n} (f g : Fin (suc n)) (f<g : toℕ f < toℕ g) → 
+                        coequalizer1-helper f g f<g f ≡ coequalizer1-helper f g f<g g
+coequalizer1-helper-≡ {n} f g f<g with cmp (toℕ f) (toℕ g)
+... | tri≈ ¬a b ¬c = ⊥-elim (¬a f<g)
+... | tri> ¬a ¬b c = ⊥-elim (¬a f<g)
+... | tri< a ¬b ¬c with cmp (toℕ g) (toℕ g)
+... | tri< a' ¬b' ¬c' = ⊥-elim (¬c' a')
+... | tri> ¬a' ¬b' c' = ⊥-elim (¬b' ≡-refl)
+... | tri≈ ¬a' b' ¬c' = toℕ-inj (
   begin
-    toℕ (inject! least)
-  ≡⟨ inject!-lemma least ⟩
-    toℕ least
-  ≡⟨ ≡-sym (inject-lemma least) ⟩
-    toℕ (inject least)
-  ≡⟨ ≡-cong toℕ (≡-sym e) ⟩
-    toℕ (inject g')
-  ≡⟨ inject-lemma g' ⟩
-    toℕ g'
-  ≡⟨ ≡-sym (inject!-lemma g') ⟩
-    toℕ (inject! g')
+    toℕ (fromℕ≤ (≤-trans a (≤-pred (bounded g))))
+  ≡⟨ toℕ-fromℕ≤ _ ⟩
+    toℕ f
+  ≡⟨ ≡-sym (toℕ-fromℕ≤ _) ⟩
+    toℕ (fromℕ≤ (≤-trans f<g (≤-pred (bounded g))))
   ∎)
   where
     open Relation.Binary.PropositionalEquality.≡-Reasoning
 
-coequalizer1-helper-≡₂ : ∀ {n} (f : Fin (suc n)) (g' : Fin′ f) →
-                         coequalizer1-helper f g' f ≡ inject! g'
-coequalizer1-helper-≡₂ f g' with compare f f
-coequalizer1-helper-≡₂ f g' | less .f l
-
-coequalizer1-helper-≡ : ∀ {n} (f : Fin (suc n)) (g' : Fin′ f) →
-                        coequalizer1-helper f g' f ≡ coequalizer1-helper f g' (inject g')
-coequalizer1-helper-≡ f g' = {!!}
-{-coequalizer1-helper-≡ f g' with inject g' | compare (inject g') f | compare f f
-coequalizer1-helper-≡ f g' | .(inject least) | less .f least | c = {!!}
-coequalizer1-helper-≡ f g' | .f | equal .f | c = {!!}
-coequalizer1-helper-≡ .(inject least) g' | inj-g' | greater .inj-g' least | c = {!!}
--}
-
 coequalizer1-≗ : ∀ {n} (f g : Fin n) →
                  proj₂ (coequalizer1 f g) f ≡ proj₂ (coequalizer1 f g) g
 coequalizer1-≗ {zero} () ()
-coequalizer1-≗ {suc n} f g with compare f g
-coequalizer1-≗ {suc n} .g g | equal .g = ≡-refl
-coequalizer1-≗ {suc n} .(inject least) g | less .g least = ≡-sym (coequalizer1-helper-≡ g least)
-coequalizer1-≗ {suc n} f .(inject least) | greater .f least = coequalizer1-helper-≡ f least
+coequalizer1-≗ {suc n} f g with cmp (toℕ f) (toℕ g)
+... | tri≈ ¬a b ¬c = toℕ-inj b
+... | tri< a ¬b ¬c = coequalizer1-helper-≡ f g a
+... | tri> ¬a ¬b c = ≡-sym (coequalizer1-helper-≡ g f c)
+
+-- The actual theorem.
 
 coequalizer-≗ : ∀ {m n} (f g : Fin m → Fin n) →
                proj₂ (coequalizer f g) ∘ f ≗ proj₂ (coequalizer f g) ∘ g
@@ -184,7 +172,7 @@ coequalizer-≗ {suc m'} f g x | .(inject l) | i[ fromℕ-m'=inj-l ] | greater .
       x<=m' = ≤-pred (bounded x)
       m'=l = subst₂ _≡_ (to-from m') (inject-lemma l) (≡-cong toℕ fromℕ-m'=inj-l)
       x<=l = subst (λ t → toℕ x ≤ t) m'=l x<=m'
-  in ⊥-elim (1+n≰n {toℕ l} (DecTotalOrder.trans decTotalOrder l<x x<=l))
+  in ⊥-elim (1+n≰n {toℕ l} (≤-trans l<x x<=l))
 coequalizer-≗ {suc m'} f g .mm | mm | _ | equal .mm = 
   coequalizer1-≗ 
     (proj₂ (coequalizer (λ x' → f (inject₁ x')) (λ x' → g (inject₁ x'))) (f mm)) 
