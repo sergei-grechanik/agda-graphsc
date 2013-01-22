@@ -5,6 +5,7 @@ module Hypergraph.FinSymb (semantics : Semantics) where
 
 open import ListUtil
 
+import Level
 open import Function
 open import Function.Inverse hiding (_∘_; map; id)
 open import Function.Equality hiding (_∘_; id)
@@ -49,7 +50,7 @@ open Hypergraph.Interpretation semantics
 
 
 
--- This helper function just creates a map that "glues" f to g.
+-- This helper function just creates a map that "glues" g to f.
 
 coequalizer1-helper : ∀ {n} (f : Fin (suc n)) (g : Fin (suc n)) →
                       toℕ f < toℕ g → Fin (suc n) → Fin n
@@ -97,6 +98,17 @@ pushout {k} {m} {n} f g = go
     ... | k' , ε 
       with coequalizer (ε ∘ in-k) (ε ∘ in-n ∘ g)
     ... | l , δ = l , δ ∘ ε ∘ in-m , δ ∘ ε ∘ in-n
+
+-- More convenient notation.
+
+_⊞_ : ∀ {k m n} → (f : Fin k → Fin m) → (g : Fin k → Fin n) → Set
+f ⊞ g = Fin (proj₁ (pushout f g))
+
+_⇈[_] : ∀ {k m n} → (f : Fin k → Fin m) → (g : Fin k → Fin n) → (Fin n → f ⊞ g)
+f ⇈[ g ] = proj₂ (proj₂ (pushout f g))
+
+_⇉[_] : ∀ {k m n} → (g : Fin k → Fin n) → (f : Fin k → Fin m) → (Fin m → f ⊞ g)
+g ⇉[ f ] = proj₁ (proj₂ (pushout f g))
 
 ----------------------------------------------------------------------------------------------------
 -- Some lemmas I haven't found in stdlib
@@ -181,3 +193,106 @@ coequalizer-≗ {suc m'} f g .(inject least) | mm | _ | less .mm least
   rewrite ≡-sym (inject₁∘inject! least) 
         | coequalizer-≗ {m'} (f ∘ inject₁) (g ∘ inject₁) (inject! least)
   = ≡-refl
+
+----------------------------------------------------------------------------------------------------
+-- Here we prove that coequalizer is universal.
+
+-- Right inverse of a coequalizer1-helper.
+
+coequalizer1-helper-rinv : ∀ {n} (f g : Fin (suc n)) (f<g : toℕ f < toℕ g) → 
+                           Σ (Fin n → Fin (suc n))
+                             λ e' → (coequalizer1-helper f g f<g) ∘ e' ≗ Function.id
+coequalizer1-helper-rinv {n} f g f<g = e' , rinv
+  where
+    e' : Fin n → Fin (suc n)
+    e' x with (toℕ g) ≤? (toℕ x)
+    ... | yes _ = suc x
+    ... | no  _ = inject₁ x
+
+    rinv-g≤x : (x : Fin n) → toℕ g ≤ toℕ x → (coequalizer1-helper f g f<g) (e' x) ≡ x
+    rinv-g≤x x g≤x with (toℕ g) ≤? (toℕ x)
+    ... | no  g>x = ⊥-elim (g>x g≤x)
+    ... | yes _ with cmp (suc (toℕ x)) (toℕ g)
+    ... | tri≈ ¬a b ¬c = ⊥-elim (¬c (s≤s g≤x))
+    ... | tri< a ¬b ¬c = ⊥-elim (¬c (s≤s g≤x))
+    ... | tri> ¬a ¬b c = toℕ-inj (toℕ-fromℕ≤ _)
+
+    rinv-g>x : (x : Fin n) → toℕ g ≰ toℕ x → (coequalizer1-helper f g f<g) (e' x) ≡ x
+    rinv-g>x x g>x with (toℕ g) ≤? (toℕ x)
+    ... | yes g≤x = ⊥-elim (g>x g≤x)
+    ... | no  _ with cmp (toℕ (inject₁ x)) (toℕ g)
+    ... | tri≈ ¬a b ¬c = ⊥-elim (subst (λ t → suc t ≤ toℕ g → ⊥) (inject₁-lemma x) ¬a (≰⇒> g>x))
+    ... | tri> ¬a ¬b c = ⊥-elim (subst (λ t → suc t ≤ toℕ g → ⊥) (inject₁-lemma x) ¬a (≰⇒> g>x))
+    ... | tri< a ¬b ¬c = toℕ-inj (
+      begin
+        toℕ (fromℕ≤ (≤-trans a (≤-pred (bounded g))))
+      ≡⟨ toℕ-fromℕ≤ _ ⟩
+        toℕ (inject₁ x)
+      ≡⟨ inject₁-lemma x ⟩
+        toℕ x
+      ∎)
+      where
+        open Relation.Binary.PropositionalEquality.≡-Reasoning
+
+    rinv : (coequalizer1-helper f g f<g) ∘ e' ≗ Function.id
+    rinv x = case (toℕ g) ≤? (toℕ x) of λ {
+        (yes g≤x) → rinv-g≤x x g≤x;
+        (no  g>x) → rinv-g>x x g>x
+      }
+
+
+-- Right inverse of a coequalizer1.
+
+coequalizer1-rinv : ∀ {n} (f g : Fin n) → 
+                   Σ (Fin (proj₁ (coequalizer1 f g)) → Fin n) 
+                     λ e' → (proj₂ (coequalizer1 f g)) ∘ e' ≗ Function.id
+coequalizer1-rinv {zero} () ()
+coequalizer1-rinv {suc n} f g with cmp (toℕ f) (toℕ g)
+... | tri≈ ¬a b ¬c = id , (λ x → ≡-refl)
+... | tri< a ¬b ¬c = coequalizer1-helper-rinv f g a
+... | tri> ¬a ¬b c = coequalizer1-helper-rinv g f c
+
+
+-- Right inverse of a coequalizer.
+
+coequalizer-rinv : ∀ {m n} (f g : Fin m → Fin n) → 
+                   Σ (Fin (proj₁ (coequalizer f g)) → Fin n) 
+                     λ e' → (proj₂ (coequalizer f g)) ∘ e' ≗ id
+coequalizer-rinv {0} {n} f g = id , (λ x → ≡-refl)
+coequalizer-rinv {suc m'} {n} f g 
+  with coequalizer {m'} (f ∘ inject₁) (g ∘ inject₁)
+     | coequalizer1 (proj₂ (coequalizer {m'} (f ∘ inject₁) (g ∘ inject₁)) (f (fromℕ m'))) 
+                    (proj₂ (coequalizer {m'} (f ∘ inject₁) (g ∘ inject₁)) (g (fromℕ m')))
+     | coequalizer-rinv {m'} (f ∘ inject₁) (g ∘ inject₁)
+     | coequalizer1-rinv (proj₂ (coequalizer {m'} (f ∘ inject₁) (g ∘ inject₁)) (f (fromℕ m'))) 
+                         (proj₂ (coequalizer {m'} (f ∘ inject₁) (g ∘ inject₁)) (g (fromℕ m')))
+... | k' , q | k , r | q' , q'-rinv | r' , r'-rinv = 
+  q' ∘ r' , (λ x →
+    begin
+      r (q (q' (r' x)))
+    ≡⟨ ≡-cong r (q'-rinv (r' x)) ⟩
+      r (r' x)
+    ≡⟨ r'-rinv x ⟩
+      x
+    ∎)
+  where
+    open Relation.Binary.PropositionalEquality.≡-Reasoning
+
+
+{-
+coequalizer-universal-∃ : ∀ {a b m n} {C : Setoid a b} (f g : Fin m → Fin n) (d : Fin n → Setoid.Carrier C) →
+                          (∀ x → d (f x) ⟨ Setoid._≈_ C ⟩ d (g x)) → 
+                          Σ (Fin (proj₁ (coequalizer f g)) → Setoid.Carrier C) 
+                            λ h → ∀ x → h (proj₂ (coequalizer f g) x) ⟨ Setoid._≈_ C ⟩ d x
+coequalizer-universal-∃ {C = C} f g d d-eq = {!!}
+-}
+
+----------------------------------------------------------------------------------------------------
+
+-- Pushout interacts in a nice way with ⇛.
+-- This is the main result of this module.
+
+pushout-⇛ : ∀ {m n l} {f : Fin m → Fin n} {g : Fin m → Fin l} 
+            {g1 : Hypergraph (Fin m)} {g2 : Hypergraph (Fin n)} →
+            g1 ⇛[ f ] g2 → hmap g g1 ⇛[ f ⇈[ g ] ] hmap (g ⇉[ f ]) g2
+pushout-⇛ {m} {n} {l} {f} {g} {g1} {g2} g1⇛g2 il il⊨hmapg1 = {!!}
