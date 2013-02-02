@@ -129,54 +129,57 @@ coproduct {m = m} {n = n} S f2 g2 = h , (h-f2 , h-g2) , only
 
 -- Pushout. Implemented using coequalizers.
 -- For details see D.E. Rydeheard, R.M. Burstall, Computational Category Theory.
+-- I know, it's impossible to read/write this function without 
+-- having a diagram before your eyes.
 
 pushout : ∀ {s t} {k m n} → (f : Fin k → Fin m) → (g : Fin k → Fin n) → 
           ∃ λ l → Σ (Fin m → Fin l) λ f' → Σ (Fin n → Fin l) λ g' → Pushout {s} {t} f g f' g'
-pushout f g = {!!}
-
-{-
-pushout : ∀ {k m n} → (Fin k → Fin m) → (Fin k → Fin n) → ∃ λ l → (Fin m → Fin l) × (Fin n → Fin l)
-pushout {k} {m} {n} f g = go
-  where 
-    k+m+n = k + m + n
-    in-k : Fin k → Fin k+m+n
-    in-k = inject+ n ∘ inject+ m
-    in-m : Fin m → Fin k+m+n
-    in-m = inject+ n ∘ raise k
-    in-n : Fin n → Fin k+m+n
-    in-n = raise (k + m)
-
-    go : ∃ λ l → (Fin m → Fin l) × (Fin n → Fin l)
-    go 
-      with coequalizer in-k (in-m ∘ f)
-    ... | k' , ε 
-      with coequalizer (ε ∘ in-k) (ε ∘ in-n ∘ g)
-    ... | l , δ = l , δ ∘ ε ∘ in-m , δ ∘ ε ∘ in-n
+pushout {s} {t} {k} {m} {n} f g 
+  with coproduct {s} {t} {m} {n}
+... | m+n-uni
+  with coequalizer {s} {t} (inject+ n ∘ f) (raise m ∘ g)
+... | k1 , e , e-eq , e-uni = 
+  k1 , e ∘ inject+ n , e ∘ raise m , e-eq , uni
+  where
+    uni : ∀ (S : Setoid s t) f2 g2 → commutative-□ (Setoid._≈_ S) f g f2 g2 → 
+          ∃! (lift→ (Setoid._≈_ S)) λ h → 
+            (∀ x → h (e (inject+ n x)) ⟨ Setoid._≈_ S ⟩ f2 x) ×
+            (∀ x → h (e (raise m x)) ⟨ Setoid._≈_ S ⟩ g2 x)
+    uni S f2 g2 f2f=g2g
+      with m+n-uni S f2 g2
+    ... | e' , (e'-f2 , e'-g2) , e'-!
+      with e-uni S e' (λ x →
+        begin
+          e' (inject+ n (f x))
+        ≈⟨ e'-f2 (f x) ⟩
+          f2 (f x)
+        ≈⟨ f2f=g2g x ⟩
+          g2 (g x)
+        ≈⟨ Setoid.sym S (e'-g2 (g x)) ⟩
+          e' (raise m (g x))
+        ∎)
+        where
+          open Relation.Binary.EqReasoning S
+    ... | d , de=e' , d-! = 
+      d , 
+      -- These three lines were generated automatically
+      ((λ x → Setoid.trans S (de=e' (inject+ n x)) (e'-f2 x)) ,
+      (λ x → Setoid.trans S (de=e' (raise m x)) (e'-g2 x))) , 
+      (λ {y} z → d-! (λ x → Setoid.sym S (e'-! {y ∘ e} z x)))
 
 -- More convenient notation.
+-- Note that we don't need s and t to build a pushout
+-- because it does not depend on the level of a pushout-like object.
 
 _⊞_ : ∀ {k m n} → (f : Fin k → Fin m) → (g : Fin k → Fin n) → Set
-f ⊞ g = Fin (proj₁ (pushout f g))
+f ⊞ g = Fin (proj₁ (pushout {Level.zero} {Level.zero} f g))
 
-_⇈[_] : ∀ {k m n} → (f : Fin k → Fin m) → (g : Fin k → Fin n) → (Fin n → f ⊞ g)
-f ⇈[ g ] = proj₂ (proj₂ (pushout f g))
+_⇉[_] : ∀ {k m n} → (f : Fin k → Fin m) → (g : Fin k → Fin n) → (Fin n → f ⊞ g)
+f ⇉[ g ] = proj₁ (proj₂ (proj₂ (pushout {Level.zero} {Level.zero} f g)))
 
-_⇉[_] : ∀ {k m n} → (g : Fin k → Fin n) → (f : Fin k → Fin m) → (Fin m → f ⊞ g)
-g ⇉[ f ] = proj₁ (proj₂ (pushout f g))
--}
-----------------------------------------------------------------------------------------------------
-{-
-pushout-≗ : ∀ {k m n} (f : Fin k → Fin m) (g : Fin k → Fin n) →
-            f ⇈[ g ] ∘ g ≗ g ⇉[ f ] ∘ f
-pushout-≗ {k} {m} {n} f g x
-  with pushout f g
-... | l , g' , f' = {!!}
--}
-----------------------------------------------------------------------------------------------------
-{-
-pushout-universal-∃ : ∀ {a b k m n} {C : Setoid a b} (f : Fin k → Fin m) (g : Fin k → Fin n) 
-                        (d : Fin n → Setoid.Carrier C) →
-                        (∀ x → d (f x) ⟨ Setoid._≈_ C ⟩ d (g x)) → 
-                        Σ (Fin (proj₁ (coequalizer f g)) → Setoid.Carrier C) 
-                          λ h → ∀ x → h (proj₂ (coequalizer f g) x) ⟨ Setoid._≈_ C ⟩ d x
--}
+_⇈[_] : ∀ {k m n} → (g : Fin k → Fin n) → (f : Fin k → Fin m) → (Fin m → f ⊞ g)
+g ⇈[ f ] = proj₁ (proj₂ (pushout {Level.zero} {Level.zero} f g))
+
+pushout' : ∀ {s t} {k m n} → (f : Fin k → Fin m) → (g : Fin k → Fin n) → 
+           Pushout {s} {t} f g (g ⇈[ f ]) (f ⇉[ g ])
+pushout' {s} {t} f g = proj₂ (proj₂ (proj₂ (pushout {s} {t} f g)))
