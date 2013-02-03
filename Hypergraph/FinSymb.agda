@@ -54,9 +54,36 @@ open import Hypergraph.Fin.Pushout
 ----------------------------------------------------------------------------------------------------
 
 -- Pushout interacts in a nice way with ⇛.
--- This is the main result of this module.
 
-pushout-⇛ : ∀ {m n l} {f : Fin m → Fin n} {g : Fin m → Fin l} 
+pushout-⇛ : ∀ {m n l} {f : Fin m → Fin l} {g : Fin m → Fin n}
             {g1 : Hypergraph (Fin m)} {g2 : Hypergraph (Fin n)} →
-            g1 ⇛[ f ] g2 → hmap g g1 ⇛[ f ⇈[ g ] ] hmap (g ⇉[ f ]) g2
-pushout-⇛ {m} {n} {l} {f} {g} {g1} {g2} g1⇛g2 il il⊨hmapg1 = {!!}
+            g1 ⇛[ g ] g2 → hmap f g1 ⇛[ g ⇈[ f ] ] hmap (f ⇉[ g ]) g2
+pushout-⇛ {m} {n} {l} {f} {g} {g1} {g2} g1⇛g2 il il⊨hmapg1
+  with pushout' f g
+... | f'f=g'g , push-uni 
+  with g1⇛g2 (il ∘ f) (⊨-hmap il⊨hmapg1) 
+... | i2 , i2g=ilf , i2⊨g2 
+  with push-uni domain il i2 i2g=ilf
+... | ik , (ikf'=il , ikg'=i2) , ik-! = 
+  ik , ≈-sym ∘ ikf'=il , ⊨-hmap-inv (≍-⊨ (≍-sym ikg'=i2) i2⊨g2)
+
+
+----------------------------------------------------------------------------------------------------
+
+-- Pushouts interact nicely with ⇚ too.
+
+pushout-⇚ : ∀ {m n l} {f : Fin m → Fin l} {g : Fin m → Fin n}
+            {g1 : Hypergraph (Fin m)} {g2 : Hypergraph (Fin n)} →
+            g1 ⇚[ g ] g2 → hmap f g1 ⇚[ g ⇈[ f ] ] hmap (f ⇉[ g ]) g2
+pushout-⇚ {m} {n} {l} {f} {g} {g1} {g2} g1⇚g2 ik ik⊨hmapg2
+  with pushout' {Level.zero} {Level.zero} f g
+... | f'f=g'g , push-uni
+  with g1⇚g2 (ik ∘ (f ⇉[ g ])) (⊨-hmap ik⊨hmapg2)
+... | im , im=ikg'g , im⊨g1 =
+  ik ∘ (g ⇈[ f ]) , (λ s → ≈-refl) , il⊨hmapg1
+  where
+    ikg'g=ikf'f : ik ∘ (f ⇉[ g ]) ∘ g ≍ ik ∘ (g ⇈[ f ]) ∘ f
+    ikg'g=ikf'f s = Setoid.reflexive domain (≡-cong ik (≡-sym (f'f=g'g s)))
+
+    il⊨hmapg1 : (ik ∘ (g ⇈[ f ])) ⊨ hmap f g1
+    il⊨hmapg1 = ⊨-hmap-inv (≍-⊨ ikg'g=ikf'f (≍-⊨ im=ikg'g im⊨g1))

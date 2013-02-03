@@ -106,6 +106,8 @@ i ⊨ g = All (_⊨[_] i) g
 
 -- Pointwise equality for interpretations
 
+infix 4 _≍_
+
 _≍_ : {S : Set} (i1 i2 : Interpretation S) → Set
 _≍_ {S} i1 i2 = (s : S) → i1 s ≈ i2 s
 
@@ -173,13 +175,17 @@ _⇛[_]_ : {S1 S2 : Set} (g1 : Hypergraph S1) (f : S1 → S2) (g2 : Hypergraph S
 _⇛[_]_ {S1} {S2} g1 f g2 = 
   (i1 : Interpretation S1) → i1 ⊨ g1 → Σ (Interpretation S2) (λ i2 → (i1 ≈[ f ] i2) × (i2 ⊨ g2))
 
--- g1 ⇛[ f ] g2 means that g2 is a consequence of g1, that is
--- for every interpretation of g1 there is an "equivalent" (≈[ f ])
--- interpretation of g2.
+-- g1 ⇚[ f ] g2 means that g1 is a consequence of g2, that is
+-- for every interpretation of g2 there is an "equivalent" (≈[ f ])
+-- interpretation of g1. This property is a bit simpler than 
+-- the previous one since f and ⇚ go in opposite directions.
 
 _⇚[_]_ : {S1 S2 : Set} (g1 : Hypergraph S1) (f : S1 → S2) (g2 : Hypergraph S2) → Set
 _⇚[_]_ {S1} {S2} g1 f g2 = 
   (i2 : Interpretation S2) → i2 ⊨ g2 → Σ (Interpretation S1) (λ i1 → (i1 ≈[ f ] i2) × (i1 ⊨ g1))
+
+-- An alternative formulation could be like this:
+-- (i2 : Interpretation S2) → i2 ⊨ g2 → i2 ⊨ hmap f g1
 
 -- g1 ⇄ g2 means that these graphs are equal on their "common" nodes 
 -- and there are no nodes removed in g2 (but some nodes may be glued).
