@@ -21,7 +21,7 @@ open import Data.List.All hiding (map)
 open import Data.List.Any using (Any; any; here; there) renaming (map to any-map)
 open import Relation.Binary.List.Pointwise using ([]; _∷_) renaming (Rel to RelList)
 open import Data.List.Any.Properties using (map↔) renaming (++↔ to ++↔-any)
-open import Data.List.All.Properties using (++↔)
+open import Data.List.All.Properties using (++↔; anti-mono)
 import Relation.Binary.EqReasoning
 
 open import Relation.Binary.PropositionalEquality using (_≡_; subst) 
@@ -101,6 +101,12 @@ i ⊨ g = All (_⊨[_] i) g
 ⊨-++₂ : {S : Set} {i : Interpretation S} {g1 g2 : Hypergraph S} →
         i ⊨ (g1 ++ g2) → i ⊨ g2
 ⊨-++₂ {g1 = g1} {g2 = g2} i⊨gs = proj₂ (Inverse.from (++↔ {xs = g1} {ys = g2}) ⟨$⟩ i⊨gs)
+
+-- If g1 is a subgraph of g2 then a model of g2 is also a model of g1.
+
+⊨-⊆ : {S : Set} {i : Interpretation S} {g1 g2 : Hypergraph S} →
+      g1 ⊆ g2 → i ⊨ g2 → i ⊨ g1
+⊨-⊆ = anti-mono
 
 ----------------------------------------------------------------------------------------------------
 
@@ -197,9 +203,42 @@ g1 ⇄[ f ] g2 = (g1 ⇛[ f ] g2) × (g1 ⇚[ f ] g2)
 
 ----------------------------------------------------------------------------------------------------
 
--- Some properties of ⇛ and others.
+-- Transitivity
 
--- TODO
+⇛-trans : {S1 S2 S3 : Set} {g1 : Hypergraph S1} {g2 : Hypergraph S2} {g3 : Hypergraph S3}
+          {f : S1 → S2} {g : S2 → S3} → g1 ⇛[ f ] g2 → g2 ⇛[ g ] g3 → g1 ⇛[ g ∘ f ] g3
+⇛-trans {f = f} g1-g2 g2-g3 i1 i1⊨g1 with g1-g2 i1 i1⊨g1
+... | i2 , i1-i2 , i2⊨g2 with g2-g3 i2 i2⊨g2
+... | i3 , i2-i3 , i3⊨g3 =
+  i3 , (λ s → ≈-trans (i1-i2 s) (i2-i3 (f s))) , i3⊨g3
+
+⇚-trans : {S1 S2 S3 : Set} {g1 : Hypergraph S1} {g2 : Hypergraph S2} {g3 : Hypergraph S3}
+          {f : S1 → S2} {g : S2 → S3} → g1 ⇚[ f ] g2 → g2 ⇚[ g ] g3 → g1 ⇚[ g ∘ f ] g3
+⇚-trans {f = f} g1-g2 g2-g3 i3 i3⊨g3 with g2-g3 i3 i3⊨g3
+... | i2 , i2-i3 , i2⊨g2 with g1-g2 i2 i2⊨g2
+... | i1 , i1-i2 , i1⊨g1 =
+  i1 , (λ s → ≈-trans (i1-i2 s) (i2-i3 (f s))) , i1⊨g1
+
+⇄-trans : {S1 S2 S3 : Set} {g1 : Hypergraph S1} {g2 : Hypergraph S2} {g3 : Hypergraph S3}
+          {f : S1 → S2} {g : S2 → S3} → g1 ⇄[ f ] g2 → g2 ⇄[ g ] g3 → g1 ⇄[ g ∘ f ] g3
+⇄-trans g1-g2 g2-g3 = ⇛-trans (proj₁ g1-g2) (proj₁ g2-g3) , ⇚-trans (proj₂ g1-g2) (proj₂ g2-g3)
+
+----------------------------------------------------------------------------------------------------
+
+-- These functions are meant to be used with ⊨-⊆.
+
+⇛-id : {S : Set} {g1 : Hypergraph S} {g2 : Hypergraph S} →
+       ({i : Interpretation S} → i ⊨ g1 → i ⊨ g2) → g1 ⇛[ id ] g2
+⇛-id f i i⊨g1 = i , (λ s → ≈-refl) , f i⊨g1
+
+⇚-id : {S : Set} {g1 : Hypergraph S} {g2 : Hypergraph S} →
+       ({i : Interpretation S} → i ⊨ g2 → i ⊨ g1) → g1 ⇚[ id ] g2
+⇚-id f i i⊨g2 = i , (λ s → ≈-refl) , f i⊨g2
+
+⇄-id : {S : Set} {g1 : Hypergraph S} {g2 : Hypergraph S} →
+       ({i : Interpretation S} → i ⊨ g1 → i ⊨ g2) → ({i : Interpretation S} → i ⊨ g2 → i ⊨ g1) → 
+       g1 ⇄[ id ] g2
+⇄-id f g = ⇛-id f , ⇚-id g
 
 ----------------------------------------------------------------------------------------------------
 

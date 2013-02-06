@@ -45,21 +45,13 @@ label (s ▷ l ▷ ds) = l
 edge-nodes : Hyperedge → List Symb
 edge-nodes h = source h ∷ dests h
 
--- ≡ is decidable for hyperedges
+-- Hyperedge can be represented as a tuple.
 
 hyperedge2tuple : Hyperedge → Symb × Label × List Symb
 hyperedge2tuple h = source h , label h , dests h
 
 hyperedge2tuple-inj : ∀ {h1 h2} → hyperedge2tuple h1 ≡ hyperedge2tuple h2 → h1 ≡ h2
 hyperedge2tuple-inj {y ▷ y' ▷ y0} {.y ▷ .y' ▷ .y0} ≡-refl = ≡-refl
-
-hyperedge-≡-decidable : Decidable (_≡_ {A = Symb}) → Decidable (_≡_ {A = Hyperedge})
-hyperedge-≡-decidable ≡-decidable = 
-  make-≟ hyperedge2tuple hyperedge2tuple-inj 
-         (≡-decidable ×-≟ (label-≡-decidable ×-≟ []-≟ ≡-decidable))
-
-hyperedge-∈-decidable : Decidable (_≡_ {A = Symb}) → Decidable (_∈_ {A = Hyperedge})
-hyperedge-∈-decidable ≡-decidable = ∈-decidable (hyperedge-≡-decidable ≡-decidable)
 
 -- A hypergraph is a list of hyperedges.
 
@@ -150,72 +142,85 @@ nodes-++ {x ∷ xs} {g2} =
 ⊆-++₂ : {g1 g2 : Hypergraph} → g2 ⊆ (g1 ++ g2)
 ⊆-++₂ {g1} {g2} x∈g2 = ++→-any₂ {xs = g1} {ys = g2} x∈g2
 
-{-
-----------------------------------------------------------------------------------------------------
-
--- Hypergraph subtraction.
-
-_−_ : (g1 g2 : Hypergraph) → Hypergraph
-[] − g2 = []
-(h ∷ hs) − g2 with any (hyperedge-≡-decidable h) g2
-... | yes h∈g2 = hs − g2
-... | no _ = h ∷ hs − g2
-
-−-∈ : {g1 g2 : Hypergraph} → {h : Hyperedge} →
-      h ∈ g1 → ¬ (h ∈ g2) → h ∈ (g1 − g2)
-−-∈ {[]} () ¬h∈g2
-−-∈ {x ∷ xs} {g2} {h} (there pxs) ¬h∈g2 with any (hyperedge-≡-decidable x) g2
-... | yes h∈g2 = −-∈ pxs ¬h∈g2
-... | no _ = there (−-∈ pxs ¬h∈g2)
-−-∈ {.h ∷ xs} {g2} {h} (here ≡-refl) ¬h∈g2 with any (hyperedge-≡-decidable h) g2
-... | yes h∈g2 = ⊥-elim (¬h∈g2 h∈g2)
-... | no _ = here ≡-refl
-
-−-∈-inv : {g1 g2 : Hypergraph} → {h : Hyperedge} →
-          h ∈ (g1 − g2) → h ∈ g1 × ¬ (h ∈ g2)
-−-∈-inv {[]} ()
-−-∈-inv {x ∷ xs} {g2} {h} h∈g1−g2 with any (hyperedge-≡-decidable x) g2
-... | yes x∈g2 = Data.Product.map there Function.id (−-∈-inv h∈g1−g2)
-−-∈-inv {.h ∷ xs} {g2} {h} (here ≡-refl) | no x∉g2 = here ≡-refl , x∉g2
-−-∈-inv {x ∷ xs} {g2} {h} (there pxs) | no x∉g2 = 
-  Data.Product.map there Function.id (−-∈-inv pxs)
-
--- And its connection to ++ and ⊆.
-
-−-++-⊆ : {g1 g2 : Hypergraph} →
-         g1 ⊆ (g2 ++ (g1 − g2))
-−-++-⊆ {g1} {g2} {x = x} x∈g1 with any (hyperedge-≡-decidable x) g2
-... | (yes x∈g2) = ⊆-++ x∈g2
-... | (no ¬x∈g2) = ⊆-++₂ {g2} {g1 − g2} (−-∈ x∈g1 ¬x∈g2)
-
-−-++-⊆-inv : {g1 g2 : Hypergraph} →
-             g2 ⊆ g1 →
-             (g2 ++ (g1 − g2)) ⊆ g1
-−-++-⊆-inv {g1} {g2} g2⊆g1 h∈++ with Inverse.from (++↔-any {xs = g2} {ys = g1 − g2}) ⟨$⟩ h∈++
-... | inj₂ h∈g1−g2 = proj₁ (−-∈-inv h∈g1−g2)
-... | inj₁ h∈g2 = g2⊆g1 h∈g2
 
 ----------------------------------------------------------------------------------------------------
 
--- Useful to prove inclusion of one set of symbols into another.
+-- Some functions that want decidability of ≡ for symbols.
 
-auto-⊆ : {l1 l2 : List Symb} → {_ : True (⊆-decidable ≡-decidable l1 l2)} → l1 ⊆ l2
-auto-⊆ {l1} {l2} {t} = toWitness t
+module HDec (≡-decidable : Decidable (_≡_ {A = Symb})) where
+    
+    -- ≡ is decidable for hyperedges
 
-auto-∈ : {l : List Symb} → {x : Symb} → {_ : True (∈-decidable ≡-decidable x l)} → x ∈ l
-auto-∈ {l} {x} {t} = toWitness t
+    hyperedge-≡-decidable : Decidable (_≡_ {A = Hyperedge})
+    hyperedge-≡-decidable = 
+      make-≟ hyperedge2tuple hyperedge2tuple-inj 
+      (≡-decidable ×-≟ (label-≡-decidable ×-≟ []-≟ ≡-decidable))
 
-----------------------------------------------------------------------------------------------------
+    hyperedge-∈-decidable : Decidable (_∈_ {A = Hyperedge})
+    hyperedge-∈-decidable = ∈-decidable hyperedge-≡-decidable
 
--- Normalize witnesses of ∈ and ⊆.
+    -- Hypergraph subtraction.
 
-norm-∈ : {l : List Symb} → {s : Symb} → s ∈ l → s ∈ l
-norm-∈ {l} {s} s∈l with ∈-decidable ≡-decidable s l
-... | yes w = w
-... | no nw = ⊥-elim (nw s∈l)
+    _−_ : (g1 g2 : Hypergraph) → Hypergraph
+    [] − g2 = []
+    (h ∷ hs) − g2 with any (hyperedge-≡-decidable h) g2
+    ... | yes h∈g2 = hs − g2
+    ... | no _ = h ∷ hs − g2
+    
+    −-∈ : {g1 g2 : Hypergraph} → {h : Hyperedge} →
+          h ∈ g1 → ¬ (h ∈ g2) → h ∈ (g1 − g2)
+    −-∈ {[]} () ¬h∈g2
+    −-∈ {x ∷ xs} {g2} {h} (there pxs) ¬h∈g2 with any (hyperedge-≡-decidable x) g2
+    ... | yes h∈g2 = −-∈ pxs ¬h∈g2
+    ... | no _ = there (−-∈ pxs ¬h∈g2)
+    −-∈ {.h ∷ xs} {g2} {h} (here ≡-refl) ¬h∈g2 with any (hyperedge-≡-decidable h) g2
+    ... | yes h∈g2 = ⊥-elim (¬h∈g2 h∈g2)
+    ... | no _ = here ≡-refl
 
-norm-⊆ : {l1 l2 : List Symb} → l1 ⊆ l2 → l1 ⊆ l2
-norm-⊆ {l1} {l2} l1⊆l2 with ⊆-decidable ≡-decidable l1 l2
-... | yes w = w
-... | no nw = ⊥-elim (nw l1⊆l2)
--}
+    −-∈-inv : {g1 g2 : Hypergraph} → {h : Hyperedge} →
+              h ∈ (g1 − g2) → h ∈ g1 × ¬ (h ∈ g2)
+    −-∈-inv {[]} ()
+    −-∈-inv {x ∷ xs} {g2} {h} h∈g1−g2 with any (hyperedge-≡-decidable x) g2
+    ... | yes x∈g2 = Data.Product.map there Function.id (−-∈-inv h∈g1−g2)
+    −-∈-inv {.h ∷ xs} {g2} {h} (here ≡-refl) | no x∉g2 = here ≡-refl , x∉g2
+    −-∈-inv {x ∷ xs} {g2} {h} (there pxs) | no x∉g2 = 
+      Data.Product.map there Function.id (−-∈-inv pxs)
+
+    -- And its connection to ++ and ⊆.
+
+    −-++-⊆ : {g1 g2 : Hypergraph} →
+             g1 ⊆ (g2 ++ (g1 − g2))
+    −-++-⊆ {g1} {g2} {x = x} x∈g1 with any (hyperedge-≡-decidable x) g2
+    ... | (yes x∈g2) = ⊆-++ x∈g2
+    ... | (no ¬x∈g2) = ⊆-++₂ {g2} {g1 − g2} (−-∈ x∈g1 ¬x∈g2)
+
+    −-++-⊆-inv : {g1 g2 : Hypergraph} →
+                 g2 ⊆ g1 →
+                 (g2 ++ (g1 − g2)) ⊆ g1
+    −-++-⊆-inv {g1} {g2} g2⊆g1 h∈++ with Inverse.from (++↔-any {xs = g2} {ys = g1 − g2}) ⟨$⟩ h∈++
+    ... | inj₂ h∈g1−g2 = proj₁ (−-∈-inv h∈g1−g2)
+    ... | inj₁ h∈g2 = g2⊆g1 h∈g2
+
+    ----------------------------------------------------------------------------------------------------
+
+    -- Useful to prove inclusion of one set of symbols into another.
+
+    auto-⊆ : {l1 l2 : List Symb} → {_ : True (⊆-decidable ≡-decidable l1 l2)} → l1 ⊆ l2
+    auto-⊆ {l1} {l2} {t} = toWitness t
+
+    auto-∈ : {l : List Symb} → {x : Symb} → {_ : True (∈-decidable ≡-decidable x l)} → x ∈ l
+    auto-∈ {l} {x} {t} = toWitness t
+
+    ----------------------------------------------------------------------------------------------------
+
+    -- Normalize witnesses of ∈ and ⊆.
+
+    norm-∈ : {l : List Symb} → {s : Symb} → s ∈ l → s ∈ l
+    norm-∈ {l} {s} s∈l with ∈-decidable ≡-decidable s l
+    ... | yes w = w
+    ... | no nw = ⊥-elim (nw s∈l)
+
+    norm-⊆ : {l1 l2 : List Symb} → l1 ⊆ l2 → l1 ⊆ l2
+    norm-⊆ {l1} {l2} l1⊆l2 with ⊆-decidable ≡-decidable l1 l2
+    ... | yes w = w
+    ... | no nw = ⊥-elim (nw l1⊆l2)

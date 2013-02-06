@@ -53,6 +53,16 @@ open import Hypergraph.Fin.Pushout
 
 ----------------------------------------------------------------------------------------------------
 
+-- Import some useful hypergraph functions specialized to finite sets.
+
+private
+  module Dummy {n : ℕ} where
+    open Hypergraph.Core.HDec semantics (Fin n) (Data.Fin.Props._≟_ {n = n}) public
+
+open Dummy public
+
+----------------------------------------------------------------------------------------------------
+
 -- Pushout interacts in a nice way with ⇛.
 
 pushout-⇛ : ∀ {m n l} {f : Fin m → Fin l} {g : Fin m → Fin n}
@@ -87,3 +97,42 @@ pushout-⇚ {m} {n} {l} {f} {g} {g1} {g2} g1⇚g2 ik ik⊨hmapg2
 
     il⊨hmapg1 : (ik ∘ (g ⇈[ f ])) ⊨ hmap f g1
     il⊨hmapg1 = ⊨-hmap-inv (≍-⊨ ikg'g=ikf'f (≍-⊨ im=ikg'g im⊨g1))
+
+
+----------------------------------------------------------------------------------------------------
+
+-- If we have a transformation (g1 ⇛[ g ] g2) then we can use
+-- it to transform a graph.
+
+transform-⇛ : ∀ {m l n} {g1 : Hypergraph (Fin m)} {g2 : Hypergraph (Fin n)} 
+              {g : Fin m → Fin n} {G1 : Hypergraph (Fin l)} →
+              g1 ⇛[ g ] g2 → (f : Fin m → Fin l) → hmap f g1 ⊆ G1 → ∃ λ G2 → G1 ⇛[ g ⇈[ f ] ] G2
+transform-⇛ {g1 = g1} {g2 = g2} {g = g} {G1 = G1} g1⇛g2 f g1⊆G1 = 
+  G2 , ⇛-trans (⇛-id (⊨-⊆ (−-++-⊆-inv g1⊆G1))) (⇛-++ (pushout-⇛ g1⇛g2))
+  where
+    G2 : Hypergraph (f ⊞ g)
+    G2 = hmap (f ⇉[ g ]) g2 ++ hmap (g ⇈[ f ]) (G1 − hmap f g1)
+
+-- Note that in this direction we don't need hmapped g1 to be a subgraph of G1.
+
+transform-⇚ : ∀ {m l n} {g1 : Hypergraph (Fin m)} {g2 : Hypergraph (Fin n)} 
+              {g : Fin m → Fin n} {G1 : Hypergraph (Fin l)} →
+              g1 ⇚[ g ] g2 → (f : Fin m → Fin l) → ∃ λ G2 → G1 ⇚[ g ⇈[ f ] ] G2
+transform-⇚ {g1 = g1} {g2 = g2} {g = g} {G1 = G1} g1⇚g2 f = 
+  G2 , ⇚-trans (⇚-id (⊨-⊆ (−-++-⊆ {g2 = hmap f g1}))) G1⇚G2-almost 
+  where
+    G2 : Hypergraph (f ⊞ g)
+    G2 = hmap (f ⇉[ g ]) g2 ++ hmap (g ⇈[ f ]) (G1 − hmap f g1)
+
+    G1⇚G2-almost : (hmap f g1 ++ (G1 − hmap f g1)) ⇚[ g ⇈[ f ] ] G2
+    G1⇚G2-almost = ⇚-++ {g = G1 − hmap f g1} (pushout-⇚ g1⇚g2)
+
+-- Both ways
+
+transform-⇄ : ∀ {m l n} {g1 : Hypergraph (Fin m)} {g2 : Hypergraph (Fin n)} 
+              {g : Fin m → Fin n} {G1 : Hypergraph (Fin l)} →
+              g1 ⇄[ g ] g2 → (f : Fin m → Fin l) → hmap f g1 ⊆ G1 → ∃ λ G2 → G1 ⇄[ g ⇈[ f ] ] G2
+transform-⇄ {g1 = g1} {g2 = g2} {g = g} {G1 = G1} g1⇄g2 f g1⊆G1 =
+  hmap (f ⇉[ g ]) g2 ++ hmap (g ⇈[ f ]) (G1 − hmap f g1) ,
+  proj₂ (transform-⇛ (proj₁ g1⇄g2) f g1⊆G1) ,
+  proj₂ (transform-⇚ (proj₂ g1⇄g2) f)
