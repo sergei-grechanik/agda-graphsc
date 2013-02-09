@@ -47,8 +47,8 @@ edge-nodes h = source h ∷ dests h
 
 -- Hyperedge can be represented as a tuple.
 
-hyperedge2tuple : Hyperedge → Symb × Label × List Symb
-hyperedge2tuple h = source h , label h , dests h
+hyperedge2tuple : Hyperedge → Label × Symb × List Symb
+hyperedge2tuple h = label h , source h , dests h
 
 hyperedge2tuple-inj : ∀ {h1 h2} → hyperedge2tuple h1 ≡ hyperedge2tuple h2 → h1 ≡ h2
 hyperedge2tuple-inj {y ▷ y' ▷ y0} {.y ▷ .y' ▷ .y0} ≡-refl = ≡-refl
@@ -154,7 +154,7 @@ module HDec (≡-decidable : Decidable (_≡_ {A = Symb})) where
     hyperedge-≡-decidable : Decidable (_≡_ {A = Hyperedge})
     hyperedge-≡-decidable = 
       make-≟ hyperedge2tuple hyperedge2tuple-inj 
-      (≡-decidable ×-≟ (label-≡-decidable ×-≟ []-≟ ≡-decidable))
+      (label-≡-decidable ×-≟ (≡-decidable ×-≟ []-≟ ≡-decidable))
 
     hyperedge-∈-decidable : Decidable (_∈_ {A = Hyperedge})
     hyperedge-∈-decidable = ∈-decidable hyperedge-≡-decidable

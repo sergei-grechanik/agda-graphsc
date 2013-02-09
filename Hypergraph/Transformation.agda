@@ -1,226 +1,273 @@
 
 open import Util
 
-module Hypergraph.Transformation (symbol : Symbol) (semantics : Semantics) where
+module Hypergraph.Transformation (semantics : Semantics) where
 
 open import ListUtil
 
 open import Function
-open import Function.Inverse hiding (_∘_; map)
-open import Function.Equality hiding (_∘_)
+open import Function.Equality hiding (_∘_; id)
+open import Function.Inverse hiding (_∘_; map; id; zip)
 open import Relation.Nullary
+open import Relation.Nullary.Decidable hiding (map)
 open import Relation.Binary
+open import Algebra.Structures
 import Relation.Binary.EqReasoning
 import Data.Empty
-open import Data.Product hiding (map)
+open import Data.Nat renaming (compare to compareℕ; pred to predℕ)
+open import Data.Nat.Properties
+open import Data.Fin hiding (_≤_; _<_) renaming (_+_ to _+'_)
+open import Data.Fin.Dec
+open import Data.Fin.Props hiding (_≟_)
+open import Data.Bool hiding (_≟_)
+open import Data.Product hiding (map; zip)
 open import Data.Maybe using (Maybe; just; nothing; Eq) renaming (setoid to eq-setoid)
 open import Data.Sum hiding (map) renaming ([_,_] to [_,_]-sum)
 open import Data.List hiding (any)
+open import Data.List.Properties using (map-id)
 open import Data.List.All hiding (map)
 open import Data.List.Any using (Any; any; here; there) renaming (map to any-map)
-open import Relation.Binary.List.Pointwise using ([]; _∷_) renaming (Rel to RelList)
-open import Data.List.Any.Properties using () renaming (++↔ to ++↔-any)
+open import Relation.Binary.List.Pointwise using ([]; _∷_; Rel≡⇒≡; ≡⇒Rel≡) renaming (Rel to RelList)
+open import Data.List.Any.Properties using (map↔) renaming (++↔ to ++↔-any)
 
-open Symbol symbol using (fresh; ≡-decidable) renaming (Carrier to Symb)
-
-open import Relation.Binary.PropositionalEquality using (trans; _≡_; inspect; subst) renaming 
-  (setoid to ≡-setoid; refl to ≡-refl; cong to ≡-cong; sym to ≡-sym)
+open import Relation.Binary.PropositionalEquality using (_≡_; inspect; subst; cong₂) renaming 
+  (setoid to ≡-setoid; refl to ≡-refl; cong to ≡-cong; sym to ≡-sym; trans to ≡-trans)
 open Data.List.Any.Membership-≡ 
 
 open Semantics semantics
-open Setoid domain using (_≈_; refl) renaming (Carrier to Dom; sym to ≈-sym; trans to ≈-trans) 
+open Setoid domain using (_≈_)
+  renaming (Carrier to Dom; sym to ≈-sym; trans to ≈-trans; refl to ≈-refl) 
 
 import Hypergraph.Core
 import Hypergraph.Interpretation
-open Hypergraph.Core symbol semantics
-open Hypergraph.Interpretation symbol semantics
+open Hypergraph.Core semantics
+open Hypergraph.Interpretation semantics
+
+import Hypergraph.FinSymb
+open Hypergraph.FinSymb semantics
+
+open StrictTotalOrder Data.Nat.Properties.strictTotalOrder using () renaming (compare to cmp)
+open DecTotalOrder decTotalOrder using () renaming (trans to ≤-trans)
+open IsDistributiveLattice isDistributiveLattice using () renaming (∧-comm to ⊔-comm)
+
+m≤max : {l : List ℕ} → {m : ℕ} → m ∈ l → m ≤ foldr _⊔_ 0 l
+m≤max {[]} ()
+m≤max {n ∷ ns} {.n} (Data.List.Any.here ≡-refl) = m≤m⊔n n (foldr _⊔_ 0 ns)
+m≤max {n ∷ ns} {m} (Data.List.Any.there pxs) = 
+      begin
+          m 
+        ≤⟨ m≤m⊔n m n ⟩
+          m ⊔ n 
+        ≤⟨ m≤n⇒m⊔k≤n⊔k (m≤max pxs) ⟩ 
+          (foldr _⊔_ 0 ns) ⊔ n 
+        ≡⟨ ⊔-comm (foldr Data.Nat._⊔_ 0 ns) n ⟩ 
+          n ⊔ (foldr _⊔_ 0 ns)
+      ∎
+      where
+        open ≤-Reasoning
+        
 
 
--- Apply a renaming θ to the nodes of a hyperedge h.
+bad : ∀ {a} {A : Set a} {n : ℕ} {l : Fin n} → _≡_ {A = Fin (suc n)} (suc l) (zero) → A
+bad ()
 
-edge-rename : (h : Hyperedge) → (θ : FinRel Symb Symb) → edge-nodes h ⊆ keys θ → Hyperedge
-edge-rename h θ n⊆k =  
-      at' θ (n⊆k (here ≡-refl)) ▷ label h ▷ list-at' θ (dests h) (n⊆k ∘ there)
-
--- Apply a renaming θ to the nodes of g.
-
-rename : (g : Hypergraph) → (θ : FinRel Symb Symb) → nodes g ⊆ keys θ → Hypergraph
-rename g θ g⊆θ = map-with-∈ g edge-ren
-  where
-    edge-ren : {h : Hyperedge} → h ∈ g → Hyperedge
-    edge-ren {h} h∈g = edge-rename h θ (g⊆θ ∘ edge-nodes-⊆ h∈g)
-
--- If a symbols is in (edge-nodes h) then its image is in (edge-nodes (edge-rename h ...)).
-
-edge-rename-nodes-lemma : 
-  {h : Hyperedge} → {θ : FinRel Symb Symb} → {h⊆θ : edge-nodes h ⊆ keys θ} → {s : Symb} →
-  (s∈h : s ∈ edge-nodes h) → at' θ (h⊆θ s∈h) ∈ edge-nodes (edge-rename h θ h⊆θ)
-edge-rename-nodes-lemma {Hypergraph.Core._▷_▷_ src l ds} (here ≡-refl) = here ≡-refl
-edge-rename-nodes-lemma {Hypergraph.Core._▷_▷_ src l ds} {θ} {h⊆θ} {s} (there pxs) = 
-  there (go ds (h⊆θ ∘ there) pxs)
-  where
-    go : (ds' : List Symb) → (sub : ds' ⊆ keys θ) → (s∈ds' : s ∈ ds') → 
-         at' θ (sub s∈ds') ∈ map-with-∈ ds' (λ ∈ds → at' θ (sub ∈ds))
-    go [] sub ()
-    go (.s ∷ xs) sub (here ≡-refl) = here ≡-refl
-    go (x ∷ xs) sub (there pxs') = there (go xs (sub ∘ there) pxs')
-
--- If a hyperedge is in g then its image is in (rename g ...).
-
-rename-edges-lemma : {g : Hypergraph} → {θ : FinRel Symb Symb} → {g⊆θ : nodes g ⊆ keys θ} → 
-                     {h : Hyperedge} → (h∈g : h ∈ g) → 
-                     edge-rename h θ (g⊆θ ∘ edge-nodes-⊆ h∈g) ∈ rename g θ g⊆θ
-rename-edges-lemma {[]} ()
-rename-edges-lemma {x ∷ xs} (here ≡-refl) = here ≡-refl
-rename-edges-lemma {x ∷ xs} {θ} {g⊆θ} (there pxs) =
-  there (rename-edges-lemma {xs} {θ} {g⊆θ ∘ (++→-any₂ {xs = edge-nodes x} )} pxs)
-
--- If a symbol is in (nodes g) then its image is in (nodes (rename g ...)).
--- We require θ to be functional because it is much more difficult
--- to prove this lemma otherwise.
-
-rename-nodes-lemma : {g : Hypergraph} → {θ : FinRel Symb Symb} → {g⊆θ : nodes g ⊆ keys θ} → 
-                     (fun : functional θ) → {s : Symb}
-                     (s∈g : s ∈ nodes g) → at' θ (g⊆θ s∈g) ∈ nodes (rename g θ g⊆θ)
-rename-nodes-lemma {g} {θ} {g⊆θ} fun {s} s∈g 
-  with find (lookup (∈-nodes-lemma {g}) s∈g)
-... | (h , h∈g , s∈h) = 
-         subst (λ x → x ∈ nodes (rename g θ g⊆θ)) eq 
-               (∈-nodes-lemma-inv (lose h'∈g' (edge-rename-nodes-lemma {h} {θ} {g⊆θ ∘ edge-nodes-⊆ h∈g} s∈h)))
-  where
-    eq : at' θ (g⊆θ (edge-nodes-⊆ h∈g s∈h)) ≡ at' θ (g⊆θ s∈g)
-    eq = at'-functional fun _ _
-    h'∈g' : edge-rename h θ (g⊆θ ∘ edge-nodes-⊆ h∈g) ∈ rename g θ g⊆θ
-    h'∈g' = rename-edges-lemma {g} {θ} {g⊆θ} h∈g
-    
-
+unsuc : ∀ {m} → {x y : Fin m} → _≡_ {A = Fin (suc m)} (suc x) (suc y) → _≡_ {A = Fin m} x y
+unsuc ≡-refl = ≡-refl
 
 ----------------------------------------------------------------------------------------------------
 
--- This function takes a list of symbols and creates a renaming which maps
--- each symbol from the list into a corresponding symbol from θ or
--- into a fresh symbols (not from forbidden).
+GraphEq : Set₁
+GraphEq = ∀ {S1 S2} → (Hypergraph S1) → (S1 → S2) → (Hypergraph S2) → Set
 
-extend-θ : (forbidden : List Symb) → (θ : FinRel Symb Symb) → List Symb → FinRel Symb Symb
-extend-θ forbidden θ [] = θ
-extend-θ forbidden θ (s ∷ ss) with has-decidable ≡-decidable θ s
-... | yes _ = extend-θ forbidden θ ss
-... | no  _ = 
-  let newsymb = proj₁ (fresh forbidden)
-  in extend-θ (newsymb ∷ forbidden) ((s , newsymb) ∷ θ) ss
+GlueList : Set
+GlueList = List (ℕ × ℕ)
 
--- θ is a subrelation of its extension.
+Transformation : GraphEq → Set
+Transformation _~[_]_ = 
+  ∀ {n1} → (G1 : Hypergraph (Fin n1)) → List (∃₂ λ n2 f → Σ (Hypergraph (Fin n2)) λ G2  → G1 ~[ f ] G2 )
 
-θ⊆extend-θ : {forb : List Symb} → {θ : FinRel Symb Symb} → {list : List Symb} → 
-             θ ⊆ extend-θ forb θ list
-θ⊆extend-θ {forb} {θ} {[]} z = z
-θ⊆extend-θ {forb} {θ} {s ∷ ss} ∈θ with has-decidable ≡-decidable θ s
-... | yes θ-has-s = θ⊆extend-θ {forb} {θ} {ss} ∈θ
-... | no ¬θ-has-s = θ⊆extend-θ {list = ss} (there ∈θ)
 
--- The relation produced by extend-θ contains all symbols from list.
+fin-n1 : (g1 : Hypergraph ℕ) (l : GlueList) → ℕ
+fin-n1 g1 l = suc (foldr _⊔_ 0 (nodes _ g1) ⊔ foldr _⊔_ 0 (map proj₁ l))
 
-extend-θ-⊆keys : {forbidden : List Symb} → {θ : FinRel Symb Symb} → {list : List Symb} →
-                 list ⊆ keys (extend-θ forbidden θ list)
-extend-θ-⊆keys {forbidden} {θ} {[]} ()
-extend-θ-⊆keys {forbidden} {θ} {s ∷ ss} (here px) 
-  rewrite px
-  with has-decidable ≡-decidable θ s
-... | yes (y , sy∈θ) = has→∈keys (y , θ⊆extend-θ {list = ss} sy∈θ)
-... | no _ = has→∈keys (proj₁ (fresh forbidden) , θ⊆extend-θ {list = ss} (here ≡-refl))
-extend-θ-⊆keys {forbidden} {θ} {s ∷ ss} (there pxs)
-  with has-decidable ≡-decidable θ s
-... | yes _ = extend-θ-⊆keys {list = ss} pxs
-... | no  _ = extend-θ-⊆keys {list = ss} pxs
+fin-n2 : (g2 : Hypergraph ℕ) (l : GlueList) → ℕ
+fin-n2 g2 l = suc (foldr _⊔_ 0 (nodes _ g2) ⊔ foldr _⊔_ 0 (map proj₂ l))
 
--- Rename each node of a graph by either using the renaming θ or
--- creating a fresh symbol.
-
-rename-or-fresh : (forbidden : List Symb) → (θ : FinRel Symb Symb) → 
-                  Hypergraph → Hypergraph
-rename-or-fresh forbidden θ g = 
-  rename g newθ g⊆new
+fin-g1 : (g1 : Hypergraph ℕ) (l : GlueList) → Hypergraph (Fin (fin-n1 g1 l))
+fin-g1 g1 l = map-with-∈ g1 mkfin
   where
-    newθ = extend-θ forbidden θ (nodes g)
-    g⊆new : nodes g ⊆ keys newθ
-    g⊆new ∈g = extend-θ-⊆keys ∈g
+  mkfin : {h : Hyperedge ℕ} → h ∈ g1 → Hyperedge (Fin (fin-n1 g1 l))
+  mkfin {h} h∈g1 = 
+    fromℕ≤ (s≤s (≤-trans (m≤max (edge-nodes-⊆ _ h∈g1 (here ≡-refl))) (m≤m⊔n _ _))) ▷ 
+    label _ h ▷ 
+    map-with-∈ (dests _ h) (λ {d} d∈ds → fromℕ≤ (s≤s (≤-trans (m≤max (edge-nodes-⊆ _ h∈g1 (there d∈ds))) (m≤m⊔n _ _))))
 
--- The effect of renaming on ⇛.
-
-rename-⇛ : {g1 g2 : Hypergraph} → {θ : FinRel Symb Symb} → {forbidden : List Symb} →
-           (fun : functional θ) → (g1⊆θ : nodes g1 ⊆ keys θ) → 
-           nodes (rename g1 θ g1⊆θ) ⊆ forbidden → g1 ⇛ g2 → 
-           rename g1 θ g1⊆θ ⇛ rename-or-fresh forbidden θ g2
-rename-⇛ {g1} {g2} {θ} {forb} fun g1⊆θ reng1⊆forb g1⇛g2 i i⊨reng1 = 
-  {!!} , 
-  {!!} , 
-  {!!}
+fin-g2 : (g2 : Hypergraph ℕ) (l : GlueList) → Hypergraph (Fin (fin-n2 g2 l))
+fin-g2 g2 l = map-with-∈ g2 mkfin
   where
-    unamb : {s : Symb} {w1 w2 : s ∈ nodes g1} → 
-            (Interpretation.int i (at' θ (g1⊆θ w1)) (rename-nodes-lemma {g = g1} {g⊆θ = g1⊆θ} fun w1)) ≈
-            (Interpretation.int i (at' θ (g1⊆θ w2)) (rename-nodes-lemma {g = g1} {g⊆θ = g1⊆θ} fun w2))
-    unamb {s} {w1} {w2} = 
-      unambiguity' i (at'-functional fun (g1⊆θ w1) (g1⊆θ w2))
+  mkfin : {h : Hyperedge ℕ} → h ∈ g2 → Hyperedge (Fin (fin-n2 g2 l))
+  mkfin {h} h∈g2 = 
+    fromℕ≤ (s≤s (≤-trans (m≤max (edge-nodes-⊆ _ h∈g2 (here ≡-refl))) (m≤m⊔n _ _))) ▷ 
+    label _ h ▷ 
+    map-with-∈ (dests _ h) (λ {d} d∈ds → fromℕ≤ (s≤s (≤-trans (m≤max (edge-nodes-⊆ _ h∈g2 (there d∈ds))) (m≤m⊔n _ _))))
 
-    θi : Interpretation (nodes g1)
-    θi = record {
-           int = λ s s∈g1 → 
-             Interpretation.int i (at' θ (g1⊆θ s∈g1)) 
-                                  (rename-nodes-lemma {g = g1} {g⊆θ = g1⊆θ} fun s∈g1);
-           unambiguity = unamb
-         }
-    
-    θi⊨g1-untab : {h : Hyperedge} → h ∈ g1 → θi ⊨[ h ]
-    θi⊨g1-untab {h} h∈g1 = yes _ _
-      (begin
-        just (θi ⟦ source h ⟧⟨ (edge-nodes-⊆ h∈g1 (here ≡-refl)) ⟩)
-      ≡⟨ ≡-refl ⟩
-        just (i ⟦ at' θ _ ⟧⟨ _ ⟩)
-      ≈⟨ just (unambiguity i) ⟩
-        just (i ⟦ at' θ _ ⟧⟨ _ ⟩)
-      ≈⟨ get-intedge (lookup i⊨reng1 (rename-edges-lemma {g⊆θ = g1⊆θ} h∈g1)) ⟩
-        ⟦ label h ⟧L (intlist i (list-at' θ (dests h) ((g1⊆θ ∘ edge-nodes-⊆ h∈g1) ∘ there)) _)
-      ≈⟨ respect (intlist-unamb i _ _) ⟩
-        ⟦ label h ⟧L (intlist i (list-at' θ (dests h) ((g1⊆θ ∘ edge-nodes-⊆ h∈g1) ∘ there)) _)
-      ≡⟨ ≡-cong (λ x → ⟦ label h ⟧L (intlist i x _)) (list-at'-functional fun _ _) ⟩
-        ⟦ label h ⟧L (intlist i (list-at' θ (dests h) _) (get-dstok (lookup i⊨reng1 (rename-edges-lemma {g⊆θ = g1⊆θ} h∈g1))))
-      ≡⟨ ≡-refl ⟩
-        ⟦ label h ⟧L (map-with-∈ (list-at' θ (dests h) _) (λ {x} x∈lst → i ⟦ _ ⟧⟨ _ ⟩))
-      ≡⟨ ≡-cong (λ x → ⟦ label h ⟧L x) (map-with-∈-list-at' θ (dests h) _) ⟩
-        ⟦ label h ⟧L (map-with-∈ (dests h) (λ {x} x∈lst → i ⟦ _ ⟧⟨ _ ⟩))
-      ≡⟨ ≡-refl ⟩
-        {!!} --⟦ label h ⟧L (intlist θi (dests h) _)
-      ≈⟨ {!!} ⟩
-        ⟦ label h ⟧L (map-with-∈ (dests h) (λ {x} x∈lst → i ⟦ at' θ (g1⊆θ ((edge-nodes-⊆ h∈g1 ∘ there) x∈lst)) ⟧⟨ rename-nodes-lemma {g = g1} {g⊆θ = g1⊆θ} fun ((edge-nodes-⊆ h∈g1 ∘ there) x∈lst) ⟩))
-      ≡⟨ ≡-refl ⟩
-        ⟦ label h ⟧L (map-with-∈ (dests h) (λ {x} x∈lst → θi ⟦ x ⟧⟨ ((edge-nodes-⊆ h∈g1 ∘ there)) x∈lst ⟩))
-      ≡⟨ ≡-refl ⟩
-        ⟦ label h ⟧L (intlist θi (dests h) (edge-nodes-⊆ h∈g1 ∘ there))
-      ∎)
+
+fin-fun : (g1 g2 : Hypergraph ℕ) (l : GlueList) → Fin (fin-n1 g1 l) → Fin (fin-n2 g2 l)
+fin-fun g1 g2 l = fun (map-with-∈ l λ {p} p∈l → p , p∈l)
+  where
+    open ≤-Reasoning
+    fun : List (∃ λ p → p ∈ l) → Fin (fin-n1 g1 l) → Fin (fin-n2 g2 l)
+    fun [] n = zero
+    fun (((m , k) , p∈l) ∷ l') n with toℕ n ≟ m
+    ... | yes _ = fromℕ≤ (s≤s (
+      begin 
+        k 
+      ≤⟨ m≤max {l = map proj₂ l} {m = k} (Inverse.to (map↔ {f = proj₂}) ⟨$⟩ any-map (≡-cong proj₂) p∈l) ⟩
+        foldr _⊔_ 0 (map proj₂ l)
+      ≤⟨ m≤m⊔n _ _ ⟩
+        foldr _⊔_ 0 (map proj₂ l) ⊔ foldr _⊔_ 0 (nodes _ g2)
+      ≡⟨ ⊔-comm (foldr _⊔_ 0 (map proj₂ l)) (foldr _⊔_ 0 (nodes _ g2)) ⟩ 
+        foldr _⊔_ 0 (nodes _ g2) ⊔ foldr _⊔_ 0 (map proj₂ l) 
+      ∎))
+    ... | no  _ = fun l' n
+
+
+hmap-⊆-lemma : ∀ {S1 S2 S S'} {f : S1 → S} {g : S2 → S} {f' : S1 → S'} {g' : S2 → S'} {g1 g2} → 
+               (∀ {x : S1} {y : S2} → f x ≡ g y → f' x ≡ g' y) → 
+               hmap f g1 ⊆ hmap g g2 → hmap f' g1 ⊆ hmap g' g2
+hmap-⊆-lemma {S1} {S2} {S} {S'} {f} {g} {f'} {g'} {g1} {g2} prop fg1⊆gg2 h∈f'g1
+  with find (Inverse.from map↔ ⟨$⟩ h∈f'g1)
+... | x , x∈g1 , ≡-refl with find (fg1⊆gg2 (Inverse.to map↔ ⟨$⟩ lose x∈g1 ≡-refl))
+... | .(edge-map f x) , fx∈gg2 , ≡-refl with find (Inverse.from map↔ ⟨$⟩ fx∈gg2)
+... | y , y∈g2 , fx=gy = Inverse.to map↔ ⟨$⟩ lose y∈g2 f'x=g'y
+  where
+    prop-list : {l1 : List S1} {l2 : List S2} → map f l1 ⟨ RelList _≡_ ⟩ map g l2 → map f' l1 ⟨ RelList _≡_ ⟩ map g' l2
+    prop-list {[]} {[]} [] = []
+    prop-list {x' ∷ xs} {[]} ()
+    prop-list {[]} {x' ∷ xs} ()
+    prop-list {x' ∷ xs} {x0 ∷ xs'} (x∼y ∷ xs∼ys) = prop x∼y ∷ prop-list xs∼ys
+
+    f'x=g'y : edge-map f' x ≡ edge-map g' y
+    f'x=g'y rewrite ≡-cong (label _) fx=gy =
+      cong₂ (λ s d → s ▷ label _ y ▷ d) 
+        (prop (≡-cong (source _) fx=gy)) 
+        (Rel≡⇒≡ (prop-list (≡⇒Rel≡ (≡-cong (dests _) fx=gy))))
+
+hmap-id : ∀ {S} {g : Hypergraph S} → hmap id g ≡ g
+hmap-id {g = []} = ≡-refl
+hmap-id {S} {(s ▷ l ▷ d) ∷ hs} rewrite map-id d = cong₂ _∷_ ≡-refl (hmap-id {g = hs})
+
+
+consistent : ∀ {m n} (f g : Fin m → Fin (suc n)) → (k : Fin m) → Dec (f k ≡ g k ⊎ f k ≡ zero ⊎ g k ≡ zero)
+consistent f g k with Data.Fin.Props._≟_ (f k) (g k)
+... | yes fk=gk = yes (inj₁ fk=gk)
+... | no fk≠gk with Data.Fin.Props._≟_ (f k) zero
+... | yes fk=0 = yes (inj₂ (inj₁ fk=0))
+... | no fk≠0 with Data.Fin.Props._≟_ (g k) zero
+... | yes gk=0 = yes (inj₂ (inj₂ gk=0))
+... | no gk≠0 = 
+  no (λ {
+    (inj₁ fk=gk) → fk≠gk fk=gk; 
+    (inj₂ (inj₁ fk=0)) → fk≠0 fk=0; 
+    (inj₂ (inj₂ gk=0)) → gk≠0 gk=0})
+
+
+combine : ∀ {m n} (f g : Fin m → Fin (suc n)) → 
+          Maybe (Σ (Fin m → Fin (suc n)) λ h → 
+            (∀ {k l} → f k ≡ suc l → h k ≡ suc l) ×
+            (∀ {k l} → g k ≡ suc l → h k ≡ suc l))
+combine {m} {n} f g with all? (consistent f g)
+... | no  _ = nothing
+... | yes c = just (proj₁ ∘ fun , 
+                   (λ {k} {l} → proj₁ (proj₂ (fun k)) l) , 
+                   (λ {k} {l} → proj₂ (proj₂ (fun k)) l))
+  where
+    fun : (k : Fin m) → Σ (Fin (suc n)) λ i → 
+             (∀ l → f k ≡ suc l → i ≡ suc l) × 
+             (∀ l → g k ≡ suc l → i ≡ suc l)
+    fun k with c k
+    fun k | inj₁ x = f k , (λ l p → p) , (λ l p → ≡-trans x p)
+    fun k | inj₂ (inj₁ x) = g k , (λ l x' → bad (≡-trans (≡-sym x') x)) , (λ l p → p)
+    fun k | inj₂ (inj₂ y) = f k , (λ l p → p) , (λ l x → bad (≡-trans (≡-sym x) y))
+
+
+find-subgraphs' : ∀ {m n} (g : Hypergraph (Fin m)) (G : Hypergraph (Fin n)) → 
+                 List (Σ (Fin m → Fin (suc n)) λ f → hmap f g ⊆ hmap suc G)
+find-subgraphs' [] G = [ (λ _ → zero) , (λ {x} → λ ()) ]
+find-subgraphs' {m} {n} (h ∷ g) G = 
+  concatMap (λ p1 → concatMap (λ p2 → comb p1 p2) (find-subgraphs' g G)) (find-subedge h)
+  where
+    comb : (∃ λ f → hmap f [ h ] ⊆ hmap suc G) → (∃ λ f → hmap f g ⊆ hmap suc G) → List (∃ λ f → hmap f (h ∷ g) ⊆ hmap suc G)
+    comb (f1 , f1h⊆G) (f2 , f2g⊆G) with combine f1 f2
+    ... | nothing = []
+    ... | just (f , ok1 , ok2) = [ f , (λ {x} → f-good {x}) ]
       where
-        open Relation.Binary.EqReasoning (Data.Maybe.setoid domain)
-        i⊨renh : i ⊨[ edge-rename h θ (g1⊆θ ∘ edge-nodes-⊆ h∈g1) ]
-        i⊨renh = lookup i⊨reng1 (rename-edges-lemma {g⊆θ = g1⊆θ} h∈g1)
-    --yes (edge-nodes-⊆ h∈g1 (here ≡-refl)) (edge-nodes-⊆ h∈g1 ∘ there)  
+        f-good : hmap f (h ∷ g) ⊆ hmap suc G
+        f-good (here p) = hmap-⊆-lemma {g1 = [ h ]} {g2 = G} ok1 f1h⊆G (here p)
+        f-good (there pxs) = hmap-⊆-lemma ok2 f2g⊆G pxs
 
-    θi⊨g1 : θi ⊨ g1
-    θi⊨g1 = tabulate θi⊨g1-untab 
+    fun : List (Fin m) → List (Fin (suc n)) → Fin m → Fin (suc n)
+    fun l1 l2 k with filter (λ p → ⌊ Data.Fin.Props._≟_ k (proj₁ p) ⌋) (zip l1 l2)
+    ... | [] = zero
+    ... | (_ , v) ∷ _ = v
 
+    find-subedge : (h : Hyperedge (Fin m)) → List (Σ (Fin m → Fin (suc n)) λ f → hmap f [ h ] ⊆ hmap suc G)
+    find-subedge h = gfilter check (map-with-∈ (hmap suc G) (λ {x} x∈ → x , x∈))
+      where
+        check : Σ (Hyperedge (Fin (suc n))) (λ x → x ∈ hmap suc G) → 
+                Maybe (Σ (Fin m → Fin (suc n)) λ f → hmap f [ h ] ⊆ hmap suc G)
+        check (x , x∈G) 
+          with hyperedge-≡-decidable (edge-map (fun (edge-nodes _ h) (edge-nodes _ x)) h) x
+        ... | no  _ = nothing
+        ... | yes fh=x = 
+          just (fun (edge-nodes _ h) (edge-nodes _ x) , good)
+          where
+            good : hmap (fun (edge-nodes _ h) (edge-nodes _ x)) [ h ] ⊆ hmap suc G
+            good (here ≡-refl) = subst (λ x' → x' ∈ _) (≡-sym fh=x) x∈G
+            good (there ())
 
--- Replace a subgraph of g equivalent to g1 with g2.
+fin-fun-sequence : ∀ {m n} → (f : Fin m → List (Fin n)) → List (Σ (Fin m → Fin n) λ h → ∀ k → h k ∈ f k)
+fin-fun-sequence {zero} f = [ (λ ()), (λ ()) ]
+fin-fun-sequence {suc m} {n} f = concatMap mk-funs (fin-fun-sequence (f ∘ suc))
+  where
+    mk-funs : Σ (Fin m → Fin n) (λ g → ∀ k → g k ∈ f (suc k)) → 
+              List (Σ (Fin (suc m) → Fin n) λ h → ∀ k → h k ∈ f k)
+    mk-funs (g , g-ok) = map-with-∈ (f zero) (λ {f0} f0∈ → (proj₁ ∘ mk-fun f0 f0∈) , (proj₂ ∘ mk-fun f0 f0∈))
+      where
+        mk-fun : (f0 : Fin n) → f0 ∈ f zero → (k : Fin (suc m)) → (Σ (Fin n) λ v → v ∈ f k)
+        mk-fun f0 f0∈ zero = f0 , f0∈
+        mk-fun f0 f0∈ (suc k) = g k , g-ok k
 
-transform : (g1 g2 g : Hypergraph) →
-            (∃ λ θ → Σ (nodes g1 ⊆ keys θ) λ g1⊆θ → rename g1 θ g1⊆θ ⊆ g) →
-            Hypergraph
-transform g1 g2 g (θ , g1⊆θ , ren⊆g) =
-  rename-or-fresh (nodes g) θ g2 ++ (g − rename g1 θ g1⊆θ)
+find-subgraphs : ∀ {m n} (g : Hypergraph (Fin m)) (G : Hypergraph (Fin n)) → 
+                 List (∃ λ f → hmap f g ⊆ G)
+find-subgraphs {m} {n} g G = 
+  subst (λ t → List (∃ λ f → hmap f g ⊆ t)) hmap-id (concatMap spec (find-subgraphs' g G))
+  where
+    all-ns : ∀ n → List (Fin n)
+    all-ns zero = []
+    all-ns (suc n) = zero ∷ (map suc (all-ns n))
 
--- 
+    -- replace zeroes with every possible symbol
+    spec : Σ (Fin m → Fin (suc n)) (λ f → hmap f g ⊆ hmap suc G) → List (∃ λ f → hmap f g ⊆ hmap id G)
+    spec (f , fg⊆sG) = 
+      map (λ {(f' , f'-ok) → f' , (λ {x} x∈f'g → hmap-⊆-lemma (prop f'-ok) fg⊆sG x∈f'g)}) 
+          (fin-fun-sequence listfun)
+      where
+        listfun : Fin m → List (Fin n)
+        listfun k with f k
+        ... | zero = all-ns n
+        ... | suc v = [ v ]
 
-transform-⇛ : {g1 g2 g : Hypergraph} →
-              (g1-subgraph : ∃ λ θ → Σ (nodes g1 ⊆ keys θ) λ g1⊆θ → rename g1 θ g1⊆θ ⊆ g) →
-              g1 ⇛ g2 → g ⇛ transform g1 g2 g g1-subgraph
-transform-⇛ (θ , g1⊆θ , reng1⊆g) g1⇛g2 = {!!}
+        prop : ∀ {f' : Fin m → Fin n} → (∀ k → f' k ∈ listfun k) → {x : Fin m} {y : Fin n} → f x ≡ suc y → f' x ≡ y
+        prop f'-ok {x} {y} fx=sy with f x | f'-ok x
+        ... | zero | _ = bad (≡-sym fx=sy)
+        ... | suc v | there ()
+        ... | suc v | here px = ≡-trans px (unsuc fx=sy)
 
---find-subgraphs : (g g1 : Hypergraph) → List ∃ λ θ → ∃ λ g1⊆θ → rename g1 θ g1⊆θ ⊆ g
---find-subgraphs g g1
+simpleTrans-⇄ : (g1 g2 : Hypergraph ℕ) (l : GlueList) →
+                (fin-g1 g1 l ⇄[ fin-fun g1 g2 l ] fin-g2 g2 l) → Transformation _⇄[_]_
+simpleTrans-⇄ g1 g2 l g1-g2 G1 = map transf (find-subgraphs (fin-g1 g1 l) G1)
+  where
+    transf : (∃ λ f → hmap f (fin-g1 g1 l) ⊆ G1) → ∃₂ λ n2 f → Σ (Hypergraph (Fin n2)) λ G2  → G1 ⇄[ f ] G2
+    transf (f , fg1⊆G1) = _ , _ , transform-⇄ g1-g2 f fg1⊆G1
+
