@@ -1,5 +1,7 @@
 
-module Hypergraph.Fin.Pushout where
+module Graphsc.Fin.Pushout where
+
+open import Graphsc.NatUtil
 
 open import Level hiding (suc; zero)
 open import Function
@@ -22,31 +24,7 @@ open StrictTotalOrder Data.Nat.Properties.strictTotalOrder using () renaming (co
 open DecTotalOrder Data.Nat.decTotalOrder using () renaming (trans to ≤-trans)
 
 
-open import Hypergraph.Fin.Coequalizer
-
-----------------------------------------------------------------------------------------------------
-
--- For some reason this property is private in stdlib.
--- That's why I hate "private".
-
-m+1+n≡1+m+n : ∀ m n → m + suc n ≡ suc (m + n)
-m+1+n≡1+m+n zero    n = ≡-refl
-m+1+n≡1+m+n (suc m) n = ≡-cong suc (m+1+n≡1+m+n m n)
-
--- reduce-raise lemma
-
-reduce≥-raise : ∀ {m} n (i : Fin m) (ok : toℕ (raise n i) ≥ n) →
-                reduce≥ (raise n i) ok ≡ i
-reduce≥-raise {m} zero i ok = ≡-refl
-reduce≥-raise {m} (suc n) i (s≤s m≤n) = reduce≥-raise n i m≤n
-
--- raise-reduce lemma
-
-raise-reduce≥ : ∀ {m} n (i : Fin (n + m)) (ok : toℕ i ≥ n) →
-                raise n (reduce≥ i ok) ≡ i
-raise-reduce≥ zero i ok = ≡-refl
-raise-reduce≥ (suc n) zero ()
-raise-reduce≥ (suc n) (suc i) (s≤s m≤n) = ≡-cong suc (raise-reduce≥ n i m≤n)
+open import Graphsc.Fin.Coequalizer
 
 ----------------------------------------------------------------------------------------------------
 

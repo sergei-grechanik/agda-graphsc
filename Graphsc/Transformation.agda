@@ -1,10 +1,11 @@
 
-open import Util
+open import Graphsc.Semantics
 
-module Hypergraph.Transformation (semantics : Semantics) where
+module Graphsc.Transformation (semantics : Semantics) where
 
-open import ListUtil
+open import Graphsc.NatUtil
 
+import Level
 open import Function
 open import Function.Equality hiding (_∘_; id)
 open import Function.Inverse hiding (_∘_; map; id; zip)
@@ -38,54 +39,129 @@ open Semantics semantics
 open Setoid domain using (_≈_)
   renaming (Carrier to Dom; sym to ≈-sym; trans to ≈-trans; refl to ≈-refl) 
 
-import Hypergraph.Core
-import Hypergraph.Interpretation
-open Hypergraph.Core semantics
-open Hypergraph.Interpretation semantics
+import Graphsc.Hypergraph
+import Graphsc.Interpretation
+open Graphsc.Hypergraph semantics
+open Graphsc.Interpretation semantics
 
-import Hypergraph.FinSymb
-open Hypergraph.FinSymb semantics
+open import Graphsc.Fin.Coequalizer
+open import Graphsc.Fin.Pushout
 
 open StrictTotalOrder Data.Nat.Properties.strictTotalOrder using () renaming (compare to cmp)
 open DecTotalOrder decTotalOrder using () renaming (trans to ≤-trans)
 open IsDistributiveLattice isDistributiveLattice using () renaming (∧-comm to ⊔-comm)
 
-m≤max : {l : List ℕ} → {m : ℕ} → m ∈ l → m ≤ foldr _⊔_ 0 l
-m≤max {[]} ()
-m≤max {n ∷ ns} {.n} (Data.List.Any.here ≡-refl) = m≤m⊔n n (foldr _⊔_ 0 ns)
-m≤max {n ∷ ns} {m} (Data.List.Any.there pxs) = 
-      begin
-          m 
-        ≤⟨ m≤m⊔n m n ⟩
-          m ⊔ n 
-        ≤⟨ m≤n⇒m⊔k≤n⊔k (m≤max pxs) ⟩ 
-          (foldr _⊔_ 0 ns) ⊔ n 
-        ≡⟨ ⊔-comm (foldr Data.Nat._⊔_ 0 ns) n ⟩ 
-          n ⊔ (foldr _⊔_ 0 ns)
-      ∎
-      where
-        open ≤-Reasoning
-        
-
-
-bad : ∀ {a} {A : Set a} {n : ℕ} {l : Fin n} → _≡_ {A = Fin (suc n)} (suc l) (zero) → A
-bad ()
-
-unsuc : ∀ {m} → {x y : Fin m} → _≡_ {A = Fin (suc m)} (suc x) (suc y) → _≡_ {A = Fin m} x y
-unsuc ≡-refl = ≡-refl
 
 ----------------------------------------------------------------------------------------------------
+
+-- Import some useful hypergraph functions specialized to finite sets.
+
+private
+  module Dummy {n : ℕ} where
+    open Graphsc.Hypergraph.HDec semantics (Fin n) (Data.Fin.Props._≟_ {n = n}) public
+
+open Dummy public
+
+----------------------------------------------------------------------------------------------------
+
+-- Set of nice relations on graphs like ⇛[ ].
 
 GraphEq : Set₁
 GraphEq = ∀ {S1 S2} → (Hypergraph S1) → (S1 → S2) → (Hypergraph S2) → Set
 
-GlueList : Set
-GlueList = List (ℕ × ℕ)
+-- Transformation is just a function that takes a graph and returns an equivalent 
+-- (in some sense) graph. Not that we work with finite sets as symbols.
 
 Transformation : GraphEq → Set
 Transformation _~[_]_ = 
   ∀ {n1} → (G1 : Hypergraph (Fin n1)) → List (∃₂ λ n2 f → Σ (Hypergraph (Fin n2)) λ G2  → G1 ~[ f ] G2 )
 
+----------------------------------------------------------------------------------------------------
+
+-- Pushout interacts in a nice way with ⇛.
+
+pushout-⇛ : ∀ {m n l} {f : Fin m → Fin l} {g : Fin m → Fin n}
+            {g1 : Hypergraph (Fin m)} {g2 : Hypergraph (Fin n)} →
+            g1 ⇛[ g ] g2 → hmap f g1 ⇛[ g ⇈[ f ] ] hmap (f ⇉[ g ]) g2
+pushout-⇛ {m} {n} {l} {f} {g} {g1} {g2} g1⇛g2 il il⊨hmapg1
+  with pushout' f g
+... | f'f=g'g , push-uni 
+  with g1⇛g2 (il ∘ f) (⊨-hmap il⊨hmapg1) 
+... | i2 , i2g=ilf , i2⊨g2 
+  with push-uni domain il i2 i2g=ilf
+... | ik , (ikf'=il , ikg'=i2) , ik-! = 
+  ik , ≈-sym ∘ ikf'=il , ⊨-hmap-inv (≍-⊨ (≍-sym ikg'=i2) i2⊨g2)
+
+
+----------------------------------------------------------------------------------------------------
+
+-- Pushouts interact nicely with ⇚ too.
+
+pushout-⇚ : ∀ {m n l} {f : Fin m → Fin l} {g : Fin m → Fin n}
+            {g1 : Hypergraph (Fin m)} {g2 : Hypergraph (Fin n)} →
+            g1 ⇚[ g ] g2 → hmap f g1 ⇚[ g ⇈[ f ] ] hmap (f ⇉[ g ]) g2
+pushout-⇚ {m} {n} {l} {f} {g} {g1} {g2} g1⇚g2 ik ik⊨hmapg2
+  with pushout' {Level.zero} {Level.zero} f g
+... | f'f=g'g , push-uni
+  with g1⇚g2 (ik ∘ (f ⇉[ g ])) (⊨-hmap ik⊨hmapg2)
+... | im , im=ikg'g , im⊨g1 =
+  ik ∘ (g ⇈[ f ]) , (λ s → ≈-refl) , il⊨hmapg1
+  where
+    ikg'g=ikf'f : ik ∘ (f ⇉[ g ]) ∘ g ≍ ik ∘ (g ⇈[ f ]) ∘ f
+    ikg'g=ikf'f s = Setoid.reflexive domain (≡-cong ik (≡-sym (f'f=g'g s)))
+
+    il⊨hmapg1 : (ik ∘ (g ⇈[ f ])) ⊨ hmap f g1
+    il⊨hmapg1 = ⊨-hmap-inv (≍-⊨ ikg'g=ikf'f (≍-⊨ im=ikg'g im⊨g1))
+
+
+----------------------------------------------------------------------------------------------------
+
+-- If we have a transformation (g1 ⇛[ g ] g2) then we can use
+-- it to transform a graph.
+
+transform-⇛ : ∀ {m l n} {g1 : Hypergraph (Fin m)} {g2 : Hypergraph (Fin n)} 
+              {g : Fin m → Fin n} {G1 : Hypergraph (Fin l)} →
+              g1 ⇛[ g ] g2 → (f : Fin m → Fin l) → hmap f g1 ⊆ G1 → ∃ λ G2 → G1 ⇛[ g ⇈[ f ] ] G2
+transform-⇛ {g1 = g1} {g2 = g2} {g = g} {G1 = G1} g1⇛g2 f g1⊆G1 = 
+  G2 , ⇛-trans (⇛-id (⊨-⊆ (−-++-⊆-inv g1⊆G1))) (⇛-++ (pushout-⇛ g1⇛g2))
+  where
+    G2 : Hypergraph (f ⊞ g)
+    G2 = hmap (f ⇉[ g ]) g2 ++ hmap (g ⇈[ f ]) (G1 − hmap f g1)
+
+-- Note that in this direction we don't need hmapped g1 to be a subgraph of G1.
+
+transform-⇚ : ∀ {m l n} {g1 : Hypergraph (Fin m)} {g2 : Hypergraph (Fin n)} 
+              {g : Fin m → Fin n} {G1 : Hypergraph (Fin l)} →
+              g1 ⇚[ g ] g2 → (f : Fin m → Fin l) → ∃ λ G2 → G1 ⇚[ g ⇈[ f ] ] G2
+transform-⇚ {g1 = g1} {g2 = g2} {g = g} {G1 = G1} g1⇚g2 f = 
+  G2 , ⇚-trans (⇚-id (⊨-⊆ (−-++-⊆ {g2 = hmap f g1}))) G1⇚G2-almost 
+  where
+    G2 : Hypergraph (f ⊞ g)
+    G2 = hmap (f ⇉[ g ]) g2 ++ hmap (g ⇈[ f ]) (G1 − hmap f g1)
+
+    G1⇚G2-almost : (hmap f g1 ++ (G1 − hmap f g1)) ⇚[ g ⇈[ f ] ] G2
+    G1⇚G2-almost = ⇚-++ {g = G1 − hmap f g1} (pushout-⇚ g1⇚g2)
+
+-- Both ways
+
+transform-⇄ : ∀ {m l n} {g1 : Hypergraph (Fin m)} {g2 : Hypergraph (Fin n)} 
+              {g : Fin m → Fin n} {G1 : Hypergraph (Fin l)} →
+              g1 ⇄[ g ] g2 → (f : Fin m → Fin l) → hmap f g1 ⊆ G1 → ∃ λ G2 → G1 ⇄[ g ⇈[ f ] ] G2
+transform-⇄ {g1 = g1} {g2 = g2} {g = g} {G1 = G1} g1⇄g2 f g1⊆G1 =
+  hmap (f ⇉[ g ]) g2 ++ hmap (g ⇈[ f ]) (G1 − hmap f g1) ,
+  proj₂ (transform-⇛ (proj₁ g1⇄g2) f g1⊆G1) ,
+  proj₂ (transform-⇚ (proj₂ g1⇄g2) f)
+
+----------------------------------------------------------------------------------------------------
+-- Here we define a method of defining simple transformations.
+
+-- This is a list of pairs. First elements are mapped to the corresponding secod elements.
+
+GlueList : Set
+GlueList = List (ℕ × ℕ)
+
+-- For convenience we use ℕ to describe graph patterns.
+-- But since we work with Fin we should transform these ℕ.
 
 fin-n1 : (g1 : Hypergraph ℕ) (l : GlueList) → ℕ
 fin-n1 g1 l = suc (foldr _⊔_ 0 (nodes _ g1) ⊔ foldr _⊔_ 0 (map proj₁ l))
@@ -111,6 +187,7 @@ fin-g2 g2 l = map-with-∈ g2 mkfin
     label _ h ▷ 
     map-with-∈ (dests _ h) (λ {d} d∈ds → fromℕ≤ (s≤s (≤-trans (m≤max (edge-nodes-⊆ _ h∈g2 (there d∈ds))) (m≤m⊔n _ _))))
 
+-- Create a gluing function from two sample graphs and a glue list.
 
 fin-fun : (g1 g2 : Hypergraph ℕ) (l : GlueList) → Fin (fin-n1 g1 l) → Fin (fin-n2 g2 l)
 fin-fun g1 g2 l = fun (map-with-∈ l λ {p} p∈l → p , p∈l)
@@ -131,32 +208,12 @@ fin-fun g1 g2 l = fun (map-with-∈ l λ {p} p∈l → p , p∈l)
       ∎))
     ... | no  _ = fun l' n
 
+----------------------------------------------------------------------------------------------------
+-- Here we use zero as nothing and suc as just.
+-- Maybe we should use a real Maybe.
 
-hmap-⊆-lemma : ∀ {S1 S2 S S'} {f : S1 → S} {g : S2 → S} {f' : S1 → S'} {g' : S2 → S'} {g1 g2} → 
-               (∀ {x : S1} {y : S2} → f x ≡ g y → f' x ≡ g' y) → 
-               hmap f g1 ⊆ hmap g g2 → hmap f' g1 ⊆ hmap g' g2
-hmap-⊆-lemma {S1} {S2} {S} {S'} {f} {g} {f'} {g'} {g1} {g2} prop fg1⊆gg2 h∈f'g1
-  with find (Inverse.from map↔ ⟨$⟩ h∈f'g1)
-... | x , x∈g1 , ≡-refl with find (fg1⊆gg2 (Inverse.to map↔ ⟨$⟩ lose x∈g1 ≡-refl))
-... | .(edge-map f x) , fx∈gg2 , ≡-refl with find (Inverse.from map↔ ⟨$⟩ fx∈gg2)
-... | y , y∈g2 , fx=gy = Inverse.to map↔ ⟨$⟩ lose y∈g2 f'x=g'y
-  where
-    prop-list : {l1 : List S1} {l2 : List S2} → map f l1 ⟨ RelList _≡_ ⟩ map g l2 → map f' l1 ⟨ RelList _≡_ ⟩ map g' l2
-    prop-list {[]} {[]} [] = []
-    prop-list {x' ∷ xs} {[]} ()
-    prop-list {[]} {x' ∷ xs} ()
-    prop-list {x' ∷ xs} {x0 ∷ xs'} (x∼y ∷ xs∼ys) = prop x∼y ∷ prop-list xs∼ys
-
-    f'x=g'y : edge-map f' x ≡ edge-map g' y
-    f'x=g'y rewrite ≡-cong (label _) fx=gy =
-      cong₂ (λ s d → s ▷ label _ y ▷ d) 
-        (prop (≡-cong (source _) fx=gy)) 
-        (Rel≡⇒≡ (prop-list (≡⇒Rel≡ (≡-cong (dests _) fx=gy))))
-
-hmap-id : ∀ {S} {g : Hypergraph S} → hmap id g ≡ g
-hmap-id {g = []} = ≡-refl
-hmap-id {S} {(s ▷ l ▷ d) ∷ hs} rewrite map-id d = cong₂ _∷_ ≡-refl (hmap-id {g = hs})
-
+-- Two functions are consistent if they are equal everywhere or
+-- at least one of them turns into zero.
 
 consistent : ∀ {m n} (f g : Fin m → Fin (suc n)) → (k : Fin m) → Dec (f k ≡ g k ⊎ f k ≡ zero ⊎ g k ≡ zero)
 consistent f g k with Data.Fin.Props._≟_ (f k) (g k)
@@ -171,6 +228,8 @@ consistent f g k with Data.Fin.Props._≟_ (f k) (g k)
     (inj₂ (inj₁ fk=0)) → fk≠0 fk=0; 
     (inj₂ (inj₂ gk=0)) → gk≠0 gk=0})
 
+-- Combine two functions.
+-- If they aren't consistent, return nothing.
 
 combine : ∀ {m n} (f g : Fin m → Fin (suc n)) → 
           Maybe (Σ (Fin m → Fin (suc n)) λ h → 
@@ -190,6 +249,9 @@ combine {m} {n} f g with all? (consistent f g)
     fun k | inj₂ (inj₁ x) = g k , (λ l x' → bad (≡-trans (≡-sym x') x)) , (λ l p → p)
     fun k | inj₂ (inj₂ y) = f k , (λ l p → p) , (λ l x → bad (≡-trans (≡-sym x) y))
 
+-- This function returns a list of subgraphs that can be derived from the pattern.
+-- The substitution function returns zero if the symbol can be anything and
+-- suc v if it should be v.
 
 find-subgraphs' : ∀ {m n} (g : Hypergraph (Fin m)) (G : Hypergraph (Fin n)) → 
                  List (Σ (Fin m → Fin (suc n)) λ f → hmap f g ⊆ hmap suc G)
@@ -226,6 +288,9 @@ find-subgraphs' {m} {n} (h ∷ g) G =
             good (here ≡-refl) = subst (λ x' → x' ∈ _) (≡-sym fh=x) x∈G
             good (there ())
 
+-- Sequence for finite functions and lists (like for lists and lists).
+-- Returns a list of functions with witnesses of their most important property.
+
 fin-fun-sequence : ∀ {m n} → (f : Fin m → List (Fin n)) → List (Σ (Fin m → Fin n) λ h → ∀ k → h k ∈ f k)
 fin-fun-sequence {zero} f = [ (λ ()), (λ ()) ]
 fin-fun-sequence {suc m} {n} f = concatMap mk-funs (fin-fun-sequence (f ∘ suc))
@@ -237,6 +302,9 @@ fin-fun-sequence {suc m} {n} f = concatMap mk-funs (fin-fun-sequence (f ∘ suc)
         mk-fun : (f0 : Fin n) → f0 ∈ f zero → (k : Fin (suc m)) → (Σ (Fin n) λ v → v ∈ f k)
         mk-fun f0 f0∈ zero = f0 , f0∈
         mk-fun f0 f0∈ (suc k) = g k , g-ok k
+
+-- Build a list of substitutions that take the pattern graph into 
+-- subgraphs of a big graph.
 
 find-subgraphs : ∀ {m n} (g : Hypergraph (Fin m)) (G : Hypergraph (Fin n)) → 
                  List (∃ λ f → hmap f g ⊆ G)
@@ -263,6 +331,8 @@ find-subgraphs {m} {n} g G =
         ... | zero | _ = bad (≡-sym fx=sy)
         ... | suc v | there ()
         ... | suc v | here px = ≡-trans px (unsuc fx=sy)
+
+-- Build a simple fixed-pattern-based transformation.
 
 simpleTrans-⇄ : (g1 g2 : Hypergraph ℕ) (l : GlueList) →
                 (fin-g1 g1 l ⇄[ fin-fun g1 g2 l ] fin-g2 g2 l) → Transformation _⇄[_]_

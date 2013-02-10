@@ -1,9 +1,9 @@
 
-open import Util
+open import Graphsc.Semantics
 
-module Hypergraph.Core (semantics : Semantics) (Symb : Set) where
+module Graphsc.Hypergraph (semantics : Semantics) (Symb : Set) where
 
-open import ListUtil
+open import Graphsc.ListUtil
 
 open import Function
 open import Function.Inverse

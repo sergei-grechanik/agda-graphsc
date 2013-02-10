@@ -1,5 +1,5 @@
 
-module ListUtil where
+module Graphsc.ListUtil where
 
 open import Level
 open import Function

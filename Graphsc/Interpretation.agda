@@ -1,9 +1,9 @@
 
-open import Util
+open import Graphsc.Semantics
 
-module Hypergraph.Interpretation (semantics : Semantics) where
+module Graphsc.Interpretation (semantics : Semantics) where
 
-open import ListUtil
+open import Graphsc.ListUtil
 
 open import Function
 open import Function.Inverse hiding (_∘_; map; id)
@@ -19,12 +19,12 @@ open import Data.List hiding (any)
 open import Data.List.Properties
 open import Data.List.All hiding (map)
 open import Data.List.Any using (Any; any; here; there) renaming (map to any-map)
-open import Relation.Binary.List.Pointwise using ([]; _∷_) renaming (Rel to RelList)
+open import Relation.Binary.List.Pointwise using ([]; _∷_; Rel≡⇒≡; ≡⇒Rel≡) renaming (Rel to RelList)
 open import Data.List.Any.Properties using (map↔) renaming (++↔ to ++↔-any)
 open import Data.List.All.Properties using (++↔; anti-mono)
 import Relation.Binary.EqReasoning
 
-open import Relation.Binary.PropositionalEquality using (_≡_; subst) 
+open import Relation.Binary.PropositionalEquality using (_≡_; subst; cong₂) 
   renaming (setoid to ≡-setoid; refl to ≡-refl; cong to ≡-cong; sym to ≡-sym; trans to ≡-trans)
 open Data.List.Any.Membership-≡ 
 
@@ -33,8 +33,8 @@ open Setoid domain using (_≈_)
   renaming (Carrier to Dom; sym to ≈-sym; trans to ≈-trans; refl to ≈-refl) 
 
 
-import Hypergraph.Core
-open Hypergraph.Core semantics
+import Graphsc.Hypergraph
+open Graphsc.Hypergraph semantics
 
 
 ----------------------------------------------------------------------------------------------------
@@ -51,6 +51,37 @@ edge-map f h = f (source _ h) ▷ label _ h ▷ map f (dests _ h)
 
 hmap : {S1 S2 : Set} → (S1 → S2) → Hypergraph S1 → Hypergraph S2
 hmap f g = map (edge-map f) g
+
+----------------------------------------------------------------------------------------------------
+
+-- This lemma is used by the Transformation module.
+
+hmap-⊆-lemma : ∀ {S1 S2 S S'} {f : S1 → S} {g : S2 → S} {f' : S1 → S'} {g' : S2 → S'} {g1 g2} → 
+               (∀ {x : S1} {y : S2} → f x ≡ g y → f' x ≡ g' y) → 
+               hmap f g1 ⊆ hmap g g2 → hmap f' g1 ⊆ hmap g' g2
+hmap-⊆-lemma {S1} {S2} {S} {S'} {f} {g} {f'} {g'} {g1} {g2} prop fg1⊆gg2 h∈f'g1
+  with find (Inverse.from map↔ ⟨$⟩ h∈f'g1)
+... | x , x∈g1 , ≡-refl with find (fg1⊆gg2 (Inverse.to map↔ ⟨$⟩ lose x∈g1 ≡-refl))
+... | .(edge-map f x) , fx∈gg2 , ≡-refl with find (Inverse.from map↔ ⟨$⟩ fx∈gg2)
+... | y , y∈g2 , fx=gy = Inverse.to map↔ ⟨$⟩ lose y∈g2 f'x=g'y
+  where
+    prop-list : {l1 : List S1} {l2 : List S2} → map f l1 ⟨ RelList _≡_ ⟩ map g l2 → map f' l1 ⟨ RelList _≡_ ⟩ map g' l2
+    prop-list {[]} {[]} [] = []
+    prop-list {x' ∷ xs} {[]} ()
+    prop-list {[]} {x' ∷ xs} ()
+    prop-list {x' ∷ xs} {x0 ∷ xs'} (x∼y ∷ xs∼ys) = prop x∼y ∷ prop-list xs∼ys
+
+    f'x=g'y : edge-map f' x ≡ edge-map g' y
+    f'x=g'y rewrite ≡-cong (label _) fx=gy =
+      cong₂ (λ s d → s ▷ label _ y ▷ d) 
+        (prop (≡-cong (source _) fx=gy)) 
+        (Rel≡⇒≡ (prop-list (≡⇒Rel≡ (≡-cong (dests _) fx=gy))))
+
+-- If we apply id to a graph we get the same graph.
+
+hmap-id : ∀ {S} {g : Hypergraph S} → hmap id g ≡ g
+hmap-id {g = []} = ≡-refl
+hmap-id {S} {(s ▷ l ▷ d) ∷ hs} rewrite map-id d = cong₂ _∷_ ≡-refl (hmap-id {g = hs})
 
 ----------------------------------------------------------------------------------------------------
 

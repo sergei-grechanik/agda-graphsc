@@ -1,5 +1,7 @@
 
-module Hypergraph.Fin.Coequalizer where
+module Graphsc.Fin.Coequalizer where
+
+open import Graphsc.NatUtil
 
 open import Level hiding (zero; suc)
 open import Function
@@ -20,39 +22,6 @@ open import Relation.Binary.PropositionalEquality using (_≡_; subst; subst₂;
 
 open StrictTotalOrder Data.Nat.Properties.strictTotalOrder using () renaming (compare to cmp)
 open DecTotalOrder Data.Nat.decTotalOrder using () renaming (trans to ≤-trans)
-
-----------------------------------------------------------------------------------------------------
--- Some lemmas I haven't found in stdlib
-
-toℕ-inj : ∀ {n} {x y : Fin n} → toℕ x ≡ toℕ y → x ≡ y
-toℕ-inj {zero} {()} e
-toℕ-inj {suc n} {zero} {zero} ≡-refl = ≡-refl
-toℕ-inj {suc n} {zero} {suc i} ()
-toℕ-inj {suc n} {suc i} {zero} ()
-toℕ-inj {suc n} {suc i} {suc i'} e = ≡-cong suc (toℕ-inj (≡-cong predℕ e))
-
-inject!-lemma : ∀ {n} {i : Fin (suc n)} (j : Fin′ i) →
-                toℕ (inject! j) ≡ toℕ j
-inject!-lemma {n} {zero} ()
-inject!-lemma {zero} {suc ()} zero
-inject!-lemma {suc n} {suc i} zero = ≡-refl
-inject!-lemma {zero} {suc ()} (suc i')
-inject!-lemma {suc n} {suc i} (suc i') = ≡-cong suc (inject!-lemma i')
-
-inject₁∘inject! : ∀ {n} {i : Fin (suc n)} (j : Fin′ i) →
-                  inject₁ (inject! j) ≡ inject j
-inject₁∘inject! j = toℕ-inj (
-  begin
-    toℕ (inject₁ (inject! j))
-  ≡⟨ inject₁-lemma (inject! j) ⟩
-    toℕ (inject! j)
-  ≡⟨ inject!-lemma j ⟩
-    toℕ j
-  ≡⟨ ≡-sym (inject-lemma j) ⟩
-    toℕ (inject j)
-  ∎)
-  where
-    open Relation.Binary.PropositionalEquality.≡-Reasoning
 
 ----------------------------------------------------------------------------------------------------
 
