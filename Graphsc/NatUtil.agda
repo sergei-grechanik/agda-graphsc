@@ -1,6 +1,7 @@
 
 module Graphsc.NatUtil where
 
+open import Relation.Nullary
 open import Relation.Binary
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 open import Algebra.Structures
@@ -127,3 +128,13 @@ bad ()
 
 unsuc : ∀ {m} → {x y : Fin m} → _≡_ {A = Fin (suc m)} (suc x) (suc y) → _≡_ {A = Fin m} x y
 unsuc ≡-refl = ≡-refl
+
+clip : ∀ {m n} → (x : Fin m) → Fin (suc n)
+clip {m} {n} x with cmp m (suc n)
+clip {.(suc n)} {n} x | tri≈ ¬a ≡-refl ¬c = x
+... | tri< a ¬b ¬c = inject≤ x (≤⇒pred≤ (suc m) (suc n) a)
+... | tri> ¬a ¬b c with suc (toℕ x) ≤? suc n
+... | yes x<sn = fromℕ≤ x<sn
+... | no _ = zero
+
+----------------------------------------------------------------------------------------------------

@@ -14,5 +14,5 @@ record Semantics : Set₁ where
     label-≡-decidable : Decidable (_≡_ {A = Label})
     domain : Setoid Level.zero Level.zero
     ⟦_⟧L : Label → List (Setoid.Carrier domain) → Maybe (Setoid.Carrier domain)
-    respect : {l : Label} → {ds1 ds2 : List (Setoid.Carrier domain)} → 
+    respect : {l : Label} {ds1 ds2 : List (Setoid.Carrier domain)} → 
               RelList (Setoid._≈_ domain) ds1 ds2 → Eq (Setoid._≈_ domain) (⟦ l ⟧L ds1) (⟦ l ⟧L ds2)
