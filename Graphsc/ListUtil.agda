@@ -56,7 +56,7 @@ f has x = ∃ λ y → ⟪ f ⟫ x y
 
 has→∈keys : ∀ {a b} {A : Set a} {B : Set b} {f : FinRel A B} {x : A} →
             f has x → x ∈ keys f
-has→∈keys (y , here px) rewrite (≡-sym px) = here ≡-refl
+has→∈keys (y , here px) = here (≡-cong proj₁ px)
 has→∈keys (y , there pxs) with has→∈keys (y , pxs)
 ... | ∈keys-xs = there ∈keys-xs
 
